@@ -19,6 +19,7 @@ updates:
     directories:
       - "/"
       - "/action"
+      - "/crates/cf-oidc-exchange-sdk/openapi"
     schedule:
       interval: "weekly"
     # Matches pnpm's minimumReleaseAge gate, so updates don't fail install.

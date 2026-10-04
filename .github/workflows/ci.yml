@@ -20,6 +20,13 @@ jobs:
         uses: DeterminateSystems/nix-installer-action@v23
       - name: Install
         run: nix develop --command pnpm install --frozen-lockfile
+      # The OpenAPI document is compiled from TypeSpec and checked in, so it
+      # must be what the .tsp compiles to.
+      - name: Check OpenAPI Document
+        working-directory: crates/cf-oidc-exchange-sdk/openapi
+        run: |
+          nix develop --command pnpm run generate
+          git diff --exit-code .
       - name: Lint
         run: nix develop --command pnpm lint
       - name: Typecheck
