@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/cf-contrib/cf-oidc-exchange/compare/v0.10.0...v0.11.0) (2026-10-04)
+
+
+### Features
+
+* an OpenID Connect discovery document, for services that read only that ([10195aa](https://github.com/cf-contrib/cf-oidc-exchange/commit/10195aa1cb6f2e97735baeda16d884b8dc092631))
+
 ## [0.10.0](https://github.com/cf-contrib/cf-oidc-exchange/compare/v0.9.0...v0.10.0) (2026-10-03)
 
 
