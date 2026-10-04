@@ -1,11 +1,25 @@
 # cf-oidc-exchange-sdk
 
-The Rust SDK for the broker's HTTP API, generated from
-[`openapi/oidc/exchange/v1/exchangev1.yaml`](openapi/oidc/exchange/v1/exchangev1.yaml)
-by `build.rs` with [openapi-to-rust](https://github.com/gpu-cli/openapi-to-rust).
-Nothing generated is checked in: edit the spec. The health endpoints aren't
-part of it: they're hand-written, in `src/service/handler.rs`, mounted into
-`v1` beside the generated code.
+The Rust SDK for the broker's HTTP API. The API is written in
+[TypeSpec](https://typespec.io), in
+[`openapi/oidc/exchange/v1/exchangev1.tsp`](openapi/oidc/exchange/v1/exchangev1.tsp),
+which compiles to the OpenAPI document
+[`exchangev1.yaml`](openapi/oidc/exchange/v1/exchangev1.yaml) beside it.
+`build.rs` generates the SDK from the document with
+[openapi-to-rust](https://github.com/gpu-cli/openapi-to-rust). The health
+endpoints aren't part of it: they're hand-written, in
+`src/service/handler.rs`, mounted into `v1` beside the generated code.
+
+The document is checked in, so a Rust build needs no Node; none of the Rust is.
+Edit the `.tsp`, then compile it:
+
+```sh
+cd openapi
+nix develop -c pnpm install        # once; it's in the repository's pnpm workspace
+nix develop -c pnpm run generate   # after editing the .tsp
+```
+
+CI compiles it again and fails if the document differs from the one checked in.
 
 | Feature | |
 |---|---|
