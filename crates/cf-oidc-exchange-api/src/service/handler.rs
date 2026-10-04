@@ -557,10 +557,10 @@ impl TokenServiceApi for TokenServiceHandler {
                 let id = match presenter.accounts_tokens_verify(account_id).await {
                     Ok(verified) => match verified.result {
                         Some(result) => result.id,
-                        None => return Ok(Revoked::Gone),
+                        None => return Ok(RevokeStatus::Gone),
                     },
                     Err(err) if matches!(status(&err), Some(400 | 401 | 403 | 404)) => {
-                        return Ok(Revoked::Gone);
+                        return Ok(RevokeStatus::Gone);
                     }
                     Err(err) => return Err(upstream("tokens.verify", err)),
                 };
@@ -569,32 +569,32 @@ impl TokenServiceApi for TokenServiceHandler {
                 let name = match cloudflare.accounts_tokens_get(account_id, &id).await {
                     Ok(details) => details.result.and_then(|token| token.name),
                     Err(err) if err.api().is_some_and(|api| api.status == 404) => {
-                        return Ok(Revoked::Gone);
+                        return Ok(RevokeStatus::Gone);
                     }
                     Err(err) => return Err(upstream("tokens.get", err)),
                 };
                 if !name.is_some_and(|name| name.starts_with(TOKEN_PREFIX)) {
-                    return Ok(Revoked::NotMinted(id));
+                    return Ok(RevokeStatus::NotMinted(id));
                 }
 
                 match cloudflare.accounts_tokens_delete(account_id, &id).await {
-                    Ok(_) => Ok(Revoked::Deleted(id)),
+                    Ok(_) => Ok(RevokeStatus::Deleted(id)),
                     Err(err) if err.api().is_some_and(|api| api.status == 404) => {
-                        Ok(Revoked::Deleted(id))
+                        Ok(RevokeStatus::Deleted(id))
                     }
                     Err(err) => Err(upstream("tokens.delete", err)),
                 }
             };
             match revoked.await {
-                Ok(Revoked::Deleted(token_id)) => {
+                Ok(RevokeStatus::Deleted(token_id)) => {
                     info!(event = "token.revoke", token_id);
                     v1::RevokeTokenResponse::Ok
                 }
-                Ok(Revoked::Gone) => {
+                Ok(RevokeStatus::Gone) => {
                     info!(event = "token.revoke", reason = "already_gone");
                     v1::RevokeTokenResponse::Ok
                 }
-                Ok(Revoked::NotMinted(token_id)) => {
+                Ok(RevokeStatus::NotMinted(token_id)) => {
                     warn!(event = "token.revoke", token_id, reason = "not_minted");
                     v1::RevokeTokenResponse::Ok
                 }
@@ -726,7 +726,7 @@ impl DiscoveryServiceApi for DiscoveryServiceHandler {
 }
 
 /// What revoking a token did.
-enum Revoked {
+enum RevokeStatus {
     /// The broker minted it, and it's deleted: its ID.
     Deleted(String),
     /// Cloudflare doesn't know it: invalid, expired, deleted, or another
