@@ -1,14 +1,14 @@
-//! What runs around the API's routes, as tower layers: exchange auth, and
-//! OAuth's rules for every response.
+//! What runs around the API's routes, as tower layers: exchange auth, OAuth's
+//! rules for every response, and the discovery endpoints' caching.
 //!
-//! [`AuthenticateLayer`] is layered over the API's routes in the crate root.
+//! [`AuthenticateLayer`] is layered over the token endpoints in the crate root.
 //! Every token exchange needs an OIDC token from a provider the policy names,
 //! as its `subject_token`. The layer verifies it with [`cf_oidc_core`] before
 //! the request reaches the handler, and refuses the exchange if it isn't
 //! valid, or none of its provider's claim sets matches: `invalid_request`, or
 //! `temporarily_unavailable` when the issuer's keys can't be had. An exchange
 //! with another `grant_type` is refused as `unsupported_grant_type`.
-//! Everything else passes straight through.
+//! Revocation passes straight through: holding the token is its proof.
 //!
 //! The handler takes the caller's verified token from
 //! [`cf_oidc_core::verified`], by the token as sent: never by decoding it
@@ -16,7 +16,8 @@
 //!
 //! [`OAuthResponseLayer`] is layered over everything: it gives the generated
 //! validation's refusals the OAuth error body every error has, and every
-//! response its `Cache-Control`.
+//! response `Cache-Control: no-store` unless it has one. [`cache_publicly`]
+//! gives the discovery endpoints' answers theirs.
 
 use std::{
     convert::Infallible,
@@ -52,8 +53,7 @@ const TOKEN_PATH: &str = "/oauth/token";
 const MAX_BODY_BYTES: usize = 16 * 1024;
 
 /// Authenticates every token exchange before the routes it's layered over,
-/// against the providers in the Worker's policy. Every other request passes
-/// through.
+/// against the providers in the Worker's policy. Revocation passes through.
 #[derive(Clone)]
 pub struct AuthenticateLayer {
     config: Arc<Config>,
@@ -205,12 +205,12 @@ fn deny(policy: &PolicyConfig, err: cf_oidc_core::Error) -> Response {
 
 /// Makes every response one OAuth's rules allow (RFC 6749 §5): the generated
 /// validation's refusals the OAuth error every error is, and every response
-/// its `Cache-Control`.
+/// without a `Cache-Control` `no-store`.
 ///
 /// The generated validation answers `application/problem+json` with `400`,
 /// `413`, `415` or `422`; OAuth has `400` with `invalid_request` (§5.2).
 /// Token responses must not be cached (§5.1), and neither must anything else
-/// but the metadata verifying the broker's tokens takes, which is public.
+/// but what [`cache_publicly`] has already marked.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct OAuthResponseLayer;
 
@@ -274,19 +274,26 @@ where
                 response
             };
 
-            let cache_control =
-                if path.starts_with("/.well-known/") && response.status() == StatusCode::OK {
-                    "public, max-age=300"
-                } else {
-                    "no-store"
-                };
-            response.headers_mut().insert(
-                header::CACHE_CONTROL,
-                HeaderValue::from_static(cache_control),
-            );
+            response
+                .headers_mut()
+                .entry(header::CACHE_CONTROL)
+                .or_insert(HeaderValue::from_static("no-store"));
             Ok(response)
         })
     }
+}
+
+/// Lets the discovery endpoints' answers be cached for five minutes: they're
+/// public, and the same for every caller. Errors aren't, so
+/// [`OAuthResponseLayer`] makes them `no-store`.
+pub async fn cache_publicly(mut response: Response) -> Response {
+    if response.status() == StatusCode::OK {
+        response.headers_mut().insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("public, max-age=300"),
+        );
+    }
+    response
 }
 
 /// What the generated validation found wrong, from its problem details: each

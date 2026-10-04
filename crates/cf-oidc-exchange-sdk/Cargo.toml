@@ -37,8 +37,8 @@ thiserror = { version = "2", optional = true }
 tokio = { version = "1", features = ["macros", "rt"] }
 
 [features]
-# ExchangeServiceApi, and the router that serves it, and HealthHandler. What the
-# Worker implements.
+# TokenServiceApi and DiscoveryServiceApi, and the routers that serve them, and
+# HealthHandler. What the Worker implements.
 server = [
   "dep:async-trait",
   "dep:axum",

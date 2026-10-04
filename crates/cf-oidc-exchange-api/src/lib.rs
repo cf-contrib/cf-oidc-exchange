@@ -3,9 +3,10 @@
 //! services.
 //!
 //! Each request reads the Worker's configuration from its bindings, then
-//! serves the SDK's router over it: the exchange API, with the auth layer
-//! authenticating every exchange before its handler, and the health endpoints
-//! beside it, with OAuth's rules for responses over all of it. A
+//! serves the SDK's routers over it: the token endpoints, with the auth layer
+//! authenticating every exchange before its handler; the discovery endpoints,
+//! cached publicly; and the health endpoints beside them, with OAuth's rules
+//! for responses over all of it. A
 //! configuration that can't be read, an unset account, a Cloudflare token
 //! that isn't a Secrets Store binding or an invalid policy, fails every
 //! request instead, with a `server_error`.
@@ -29,8 +30,8 @@ use worker::*;
 
 use crate::service::{
     config::Config,
-    handler::ExchangeServiceHandler,
-    layer::{AuthenticateLayer, OAuthResponseLayer},
+    handler::{DiscoveryServiceHandler, TokenServiceHandler},
+    layer::{AuthenticateLayer, OAuthResponseLayer, cache_publicly},
 };
 
 /// Logs as JSON lines, one per event with its fields at the top level, which
@@ -51,15 +52,20 @@ fn start() {
 #[event(fetch)]
 async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> Result<HttpResponse> {
     let mut router = match Config::from_env(&env) {
-        // The router checks each request against the spec, form bodies
-        // included, before it reaches a handler; the auth layer
+        // Each router checks its requests against the spec, form bodies
+        // included, before they reach a handler; the auth layer
         // authenticates every exchange first.
         Ok(config) => {
             let config = Arc::new(config);
-            v1::exchange_service_api_router(ExchangeServiceHandler::new(config.clone()))
-                .layer(AuthenticateLayer::new(config))
-                // Merged after the layer, so outside it. Not in the spec:
-                // they're for whoever deploys the Worker, not its clients.
+            v1::token_service_api_router(TokenServiceHandler::new(config.clone()))
+                .layer(AuthenticateLayer::new(config.clone()))
+                // Merged after the auth layer, so outside it: they're public.
+                .merge(
+                    v1::discovery_service_api_router(DiscoveryServiceHandler::new(config))
+                        .layer(axum::middleware::map_response(cache_publicly)),
+                )
+                // Not in the spec: they're for whoever deploys the Worker, not
+                // its clients.
                 .merge(v1::HealthHandler::new().into_router())
                 // Over everything, the health endpoints too.
                 .layer(OAuthResponseLayer)
@@ -82,11 +88,7 @@ async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> Result<HttpResponse
 #[event(scheduled)]
 async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
     let deleted = match Config::from_env(&env) {
-        Ok(config) => {
-            ExchangeServiceHandler::new(Arc::new(config))
-                .cleanup()
-                .await
-        }
+        Ok(config) => TokenServiceHandler::new(Arc::new(config)).cleanup().await,
         Err(err) => Err(v1::Error::new(ErrorCode::ServerError, err.to_string())),
     };
     match deleted {
