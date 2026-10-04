@@ -184,7 +184,7 @@ impl ExchangeServiceHandler {
         Ok(TokenExchangeResponse {
             access_token: Some(signed.jwt),
             account_id: None,
-            buckets: None,
+            bucket: None,
             expires_at: expires_at as i64,
             expires_in: expires_at.saturating_sub(now) as i64,
             issued_token_type,
@@ -209,11 +209,11 @@ impl ExchangeServiceHandler {
 
         // Filled in before anything is minted, so an unusable claim leaves
         // nothing behind.
-        let buckets = profile.buckets.as_deref().unwrap_or_default();
-        let prefixes = buckets
-            .iter()
+        let bucket = profile
+            .bucket
+            .as_ref()
             .map(|bucket| {
-                bucket
+                let prefixes = bucket
                     .prefixes
                     .iter()
                     .map(|prefix| prefix.fill(&identity.claims))
@@ -223,9 +223,10 @@ impl ExchangeServiceHandler {
                             ErrorCode::InvalidRequest,
                             format!("bucket {}: {why}", bucket.name),
                         )
-                    })
+                    })?;
+                Ok::<_, Error>((bucket, prefixes))
             })
-            .collect::<Result<Vec<_>, _>>()?;
+            .transpose()?;
 
         let cloudflare = self.cloudflare().await?;
         let now = Date::now().as_millis() / 1000;
@@ -276,12 +277,10 @@ impl ExchangeServiceHandler {
             token = Some((id, value, expires));
         }
 
-        // The buckets' credentials, with the Cloudflare token, whose ID is
+        // The bucket's credentials, with the Cloudflare token, whose ID is
         // its R2 access key ID, as their parent. Half a profile isn't handed
-        // out: if one bucket's fail, the token is deleted, and credentials
-        // already issued can't be revoked, but nobody has them.
-        let mut issued = Vec::new();
-        if !buckets.is_empty() {
+        // out: if they fail, the token is deleted.
+        let issued = if let Some((bucket, prefixes)) = bucket {
             let r2 = async {
                 let parent_access_key_id = cloudflare
                     .accounts_tokens_verify(account_id)
@@ -290,76 +289,78 @@ impl ExchangeServiceHandler {
                     .result
                     .ok_or_else(|| missing("tokens.verify"))?
                     .id;
-                for (bucket, prefixes) in buckets.iter().zip(prefixes) {
-                    let request = R2TempAccessCredsRequest {
-                        bucket: bucket.name.clone(),
-                        objects: None,
-                        parent_access_key_id: parent_access_key_id.clone(),
-                        permission: match bucket.permission {
-                            BucketPermission::ObjectReadWrite => {
-                                R2TempAccessCredsRequestPermission::ObjectReadWrite
-                            }
-                            BucketPermission::ObjectReadOnly => {
-                                R2TempAccessCredsRequestPermission::ObjectReadOnly
-                            }
-                        },
-                        prefixes: (!prefixes.is_empty()).then(|| prefixes.clone()),
-                        ttl_seconds: (ttl / 1000) as f64,
-                    };
-                    let credentials = cloudflare
-                        .r2_temporary_credentials_create(account_id, request)
-                        .await
-                        .map_err(|err| upstream("temporaryCredentials.create", err))?
-                        .result;
-                    let (Some(access_key_id), Some(secret_access_key), Some(session_token)) = (
-                        credentials.access_key_id,
-                        credentials.secret_access_key,
-                        credentials.session_token,
-                    ) else {
-                        return Err(missing("temporaryCredentials.create"));
-                    };
-                    info!(
-                        event = "r2.issued",
-                        provider = %provider.name,
-                        profile = %profile.name,
-                        sub = identity.claims.sub(),
-                        claims = %claims,
-                        bucket = %bucket.name,
-                        prefixes = ?prefixes,
-                        permission = bucket.permission.as_str(),
-                        expires_at = expires_on.timestamp(),
-                    );
-                    issued.push(BucketCredentials {
-                        access_key_id,
-                        endpoint: format!("https://{account_id}.r2.cloudflarestorage.com"),
-                        expires_on,
-                        name: bucket.name.clone(),
-                        prefixes,
-                        secret_access_key,
-                        session_token,
-                    });
-                }
-                Ok(())
+                let request = R2TempAccessCredsRequest {
+                    bucket: bucket.name.clone(),
+                    objects: None,
+                    parent_access_key_id,
+                    permission: match bucket.permission {
+                        BucketPermission::ObjectReadWrite => {
+                            R2TempAccessCredsRequestPermission::ObjectReadWrite
+                        }
+                        BucketPermission::ObjectReadOnly => {
+                            R2TempAccessCredsRequestPermission::ObjectReadOnly
+                        }
+                    },
+                    prefixes: (!prefixes.is_empty()).then(|| prefixes.clone()),
+                    ttl_seconds: (ttl / 1000) as f64,
+                };
+                let credentials = cloudflare
+                    .r2_temporary_credentials_create(account_id, request)
+                    .await
+                    .map_err(|err| upstream("temporaryCredentials.create", err))?
+                    .result;
+                let (Some(access_key_id), Some(secret_access_key), Some(session_token)) = (
+                    credentials.access_key_id,
+                    credentials.secret_access_key,
+                    credentials.session_token,
+                ) else {
+                    return Err(missing("temporaryCredentials.create"));
+                };
+                info!(
+                    event = "r2.issued",
+                    provider = %provider.name,
+                    profile = %profile.name,
+                    sub = identity.claims.sub(),
+                    claims = %claims,
+                    bucket = %bucket.name,
+                    prefixes = ?prefixes,
+                    permission = bucket.permission.as_str(),
+                    expires_at = expires_on.timestamp(),
+                );
+                Ok(BucketCredentials {
+                    access_key_id,
+                    endpoint: format!("https://{account_id}.r2.cloudflarestorage.com"),
+                    expires_on,
+                    name: bucket.name.clone(),
+                    prefixes,
+                    secret_access_key,
+                    session_token,
+                })
             };
-            if let Err(err) = r2.await {
-                // Best effort: the cleanup is the fallback.
-                if let Some((token_id, _, _)) = &token {
-                    match cloudflare
-                        .accounts_tokens_delete(account_id, token_id)
-                        .await
-                    {
-                        Ok(_) => info!(event = "token.revoke", token_id, reason = "discarded"),
-                        Err(err) => error!(
-                            event = "token.revoke",
-                            token_id,
-                            reason = "discard_failed",
-                            detail = %err,
-                        ),
+            match r2.await {
+                Ok(credentials) => Some(credentials),
+                Err(err) => {
+                    // Best effort: the cleanup is the fallback.
+                    if let Some((token_id, _, _)) = &token {
+                        match cloudflare
+                            .accounts_tokens_delete(account_id, token_id)
+                            .await
+                        {
+                            Ok(_) => info!(event = "token.revoke", token_id, reason = "discarded"),
+                            Err(err) => error!(
+                                event = "token.revoke",
+                                token_id,
+                                reason = "discard_failed",
+                                detail = %err,
+                            ),
+                        }
                     }
+                    return Err(err);
                 }
-                return Err(err);
             }
-        }
+        } else {
+            None
+        };
 
         let expires_at = token
             .as_ref()
@@ -382,7 +383,7 @@ impl ExchangeServiceHandler {
         Ok(TokenExchangeResponse {
             access_token,
             account_id: Some(account_id.into()),
-            buckets: (!issued.is_empty()).then_some(issued),
+            bucket: issued,
             expires_at,
             expires_in: (expires_at - now as i64).max(0),
             issued_token_type,

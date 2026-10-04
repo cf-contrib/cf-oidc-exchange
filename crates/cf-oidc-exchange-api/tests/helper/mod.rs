@@ -486,8 +486,6 @@ pub struct FakeCloudflare {
     pub requests: Vec<CloudflareRequest>,
     pub fail_create: bool,
     pub fail_r2: bool,
-    /// Fails temp-access-credentials for this bucket only.
-    pub fail_r2_bucket: Option<String>,
     seq: u32,
 }
 
@@ -523,7 +521,6 @@ impl FakeCloudflare {
             requests: Vec::new(),
             fail_create: false,
             fail_r2: false,
-            fail_r2_bucket: None,
             seq: 0,
         };
         fake.add(
@@ -628,8 +625,7 @@ impl FakeCloudflare {
         }
         if method == Method::POST && path == format!("{acct}/r2/temp-access-credentials") {
             let body = body.unwrap_or_default();
-            let bucket = body["bucket"].as_str().unwrap_or_default();
-            if self.fail_r2 || self.fail_r2_bucket.as_deref() == Some(bucket) {
+            if self.fail_r2 {
                 return api_error(403, "Unauthorized to access requested resource");
             }
             return envelope(json!({

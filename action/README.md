@@ -59,14 +59,14 @@ A floating `v1` tag will follow each release from 1.0 on.
   - requests an OIDC token for the broker's origin, retrying brief runner failures;
   - asks the broker for a Cloudflare token (not retried, because minting isn't idempotent);
   - masks the token and the OIDC token;
-  - exports `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` for the rest of the job. For a profile with only `buckets` there's no token, and only `CLOUDFLARE_ACCOUNT_ID` is exported;
-  - when the profile has `buckets`, also writes [S3 credentials](#r2-over-the-s3-api) as one AWS profile per bucket, exports them, and masks the secrets and session tokens;
+  - exports `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` for the rest of the job. For a profile with only a `bucket` there's no token, and only `CLOUDFLARE_ACCOUNT_ID` is exported;
+  - when the profile has a `bucket`, also exports its [S3 credentials](#r2-over-the-s3-api) as the job's AWS credentials, and masks the secret and session token;
   - logs the token ID, profile and expiry (none of them secret), so a run can be matched to the broker's audit log:
     ```
     cf-oidc: minted token 3f2a… (profile workers-deploy, expires 2026-09-28T12:15:00Z)
     cf-oidc: issued R2 credentials for bucket org-terraform-state under 100000001/200000003/ (profile terraform-state, expires 2026-09-28T12:15:00Z)
     ```
-- **Post step:** revokes the token, if there is one, and deletes the R2 credentials file. It runs even when the job fails. A failed revoke is a warning, not an error: the token expires on its own and the broker's cron deletes it. R2 credentials can't be revoked; the post step logs when they expire.
+- **Post step:** revokes the token, if there is one. It runs even when the job fails. A failed revoke is a warning, not an error: the token expires on its own and the broker's cron deletes it. R2 credentials can't be revoked; the post step logs when they expire.
 
 None of this can be switched off: what's exported is decided by the profile. Exported values are also in the `env` context, so actions that take credentials as inputs can use `${{ env.CLOUDFLARE_API_TOKEN }}`.
 
@@ -100,24 +100,22 @@ None of this can be switched off: what's exported is decided by the profile. Exp
 
 ### R2 over the S3 API
 
-When the matched profile has [`buckets`](../crates/cf-oidc-exchange-api#buckets), the broker returns temporary R2 credentials for each bucket, limited to its key prefixes. The action writes them to a credentials file, `$RUNNER_TEMP/cf-oidc/credentials` (mode `0600`), with one AWS profile per bucket, named after it. It exports:
+When the matched profile has a [`bucket`](../crates/cf-oidc-exchange-api#buckets), the broker returns temporary R2 credentials for it, limited to its key prefixes. The action exports them as the job's AWS credentials, so S3 tools work without a profile:
 
-| Variable | One bucket | Several buckets |
-|---|---|---|
-| `AWS_SHARED_CREDENTIALS_FILE` | the credentials file | the same |
-| `AWS_ENDPOINT_URL_S3` | `https://<account_id>.r2.cloudflarestorage.com` | the same |
-| `AWS_REGION`, `AWS_DEFAULT_REGION` | `auto` | the same |
-| `CLOUDFLARE_R2_BUCKETS` | JSON mapping each bucket to its filled-in prefixes, e.g. `{"org-terraform-state":["100000001/200000003/"]}` | the same |
-| `AWS_ACCESS_KEY_ID` | the bucket's access key ID (not secret, not masked) | empty |
-| `AWS_SECRET_ACCESS_KEY` | the bucket's secret access key, masked | empty |
-| `AWS_SESSION_TOKEN`, `AWS_SECURITY_TOKEN` | the bucket's session token, masked. botocore still reads the legacy name | empty |
-| `CLOUDFLARE_R2_BUCKET` | the bucket's name | empty |
-| `CLOUDFLARE_R2_PREFIX` | the filled-in prefix, e.g. `100000001/200000003/`, if the bucket has exactly one | empty |
+| Variable | Value |
+|---|---|
+| `AWS_ACCESS_KEY_ID` | the access key ID (not secret, not masked) |
+| `AWS_SECRET_ACCESS_KEY` | the secret access key, masked |
+| `AWS_SESSION_TOKEN`, `AWS_SECURITY_TOKEN` | the session token, masked. botocore still reads the legacy name |
+| `AWS_ENDPOINT_URL_S3` | `https://<account_id>.r2.cloudflarestorage.com` |
+| `AWS_REGION`, `AWS_DEFAULT_REGION` | `auto` |
+| `CLOUDFLARE_R2_BUCKET` | the bucket's name |
+| `CLOUDFLARE_R2_PREFIXES` | the filled-in prefixes as JSON, e.g. `["100000001/200000003/"]`; `[]` for the whole bucket |
+| `CLOUDFLARE_R2_PREFIX` | the filled-in prefix, e.g. `100000001/200000003/`, if there's exactly one; otherwise empty |
 
-- **One bucket:** S3 tools work without a profile. The bucket's profile works too.
-- **Several buckets:** there are no default credentials, so every step names its bucket's profile: `aws --profile org-artifacts …`, `AWS_PROFILE` on the step, or the s3 backend's `profile` argument. A step that forgets fails with "Unable to locate credentials", not with credentials left by an earlier step. A workflow that names its profile keeps working when a bucket is added to the profile later.
-- **The policy decides when `AWS_*` is replaced.** The credentials overwrite any `AWS_*` credentials already set in the job, for every workflow matching a profile with `buckets`, including one that doesn't set `profile`. Always set `profile` for R2, and give a job that also talks to AWS its R2 access in a separate job.
-- **No revocation.** The credentials last as long as the profile's `ttl` (or the requested `ttl`, capped at `max_ttl`), so keep it short. The post step deletes the credentials file.
+- **One bucket per profile.** A job that needs two buckets uses two profiles in two jobs, as in [Two scopes: two jobs](#two-scopes-two-jobs): a second run of the action in the same job replaces the first one's `AWS_*`.
+- **The policy decides when `AWS_*` is replaced.** The credentials overwrite any `AWS_*` credentials already set in the job, for every workflow matching a profile with a `bucket`, including one that doesn't set `profile`. Always set `profile` for R2, and give a job that also talks to AWS its R2 access in a separate job.
+- **No revocation.** The credentials last as long as the profile's `ttl` (or the requested `ttl`, capped at `max_ttl`), so keep it short.
 
 ### Two scopes: two jobs
 
@@ -151,7 +149,7 @@ jobs:
 |---|---|
 | `OIDC unavailable: add permissions: id-token: write to the job` | The job can't request an OIDC token. Add the permission. Fork PRs on `pull_request` never get it. |
 | `broker returned 400 (invalid_request: …)` | The broker rejected the OIDC token, usually because `url` doesn't match the GitHub provider's `audience` in the policy; or no profile allows this workflow, or the named `profile` doesn't match. The description says which. |
-| `broker returned 503 (temporarily_unavailable: …)` | The Cloudflare API or the subject token's issuer failed; the broker's log (`token.deny`) says which. For a profile with `buckets`, it's usually a Cloudflare token without enough R2 permissions on the bucket. |
+| `broker returned 503 (temporarily_unavailable: …)` | The Cloudflare API or the subject token's issuer failed; the broker's log (`token.deny`) says which. For a profile with a `bucket`, it's usually a Cloudflare token without enough R2 permissions on it. |
 | `broker returned 500 (server_error: …)` | The broker's policy or bindings are invalid. The broker's logs say why. |
 | `url must use https` | Plain `http` is only accepted for `localhost` and `127.0.0.1`. |
 | `AccessDenied` from S3 on some keys | The credentials only cover the bucket's prefixes: keep every key under `$CLOUDFLARE_R2_PREFIX`. |

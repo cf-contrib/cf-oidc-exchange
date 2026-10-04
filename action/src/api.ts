@@ -34,8 +34,8 @@ export interface TokenExchangeRequest {
 }
 
 /**
- * `200` response of `POST /oauth/token`. A profile with only `buckets` has no single bearer
- * token, so it returns no `access_token` and `token_type: "N_A"`, with the credentials in `buckets`.
+ * `200` response of `POST /oauth/token`. A profile with only a `bucket` has no bearer token,
+ * so it returns no `access_token` and `token_type: "N_A"`, with the credentials in `bucket`.
  * For another service's audience, `access_token` is a JWT access token (RFC 9068, `typ`
  * `at+jwt`) the broker signed, verifiable with the keys its metadata
  * (`/.well-known/oauth-authorization-server`, RFC 8414) names.
@@ -53,7 +53,7 @@ export interface TokenExchangeResponse {
   /** The Cloudflare account, for the Cloudflare audience. */
   account_id?: string;
   profile: string;
-  buckets?: BucketCredentials[];
+  bucket?: BucketCredentials;
 }
 
 /**
@@ -67,7 +67,7 @@ export interface TokenRevocationRequest {
   token_type_hint?: "access_token" | undefined;
 }
 
-/** S3 credentials for one R2 bucket, limited to `prefixes`. They can't be revoked; they expire. */
+/** S3 credentials for the profile's R2 bucket, limited to `prefixes`. They can't be revoked; they expire. */
 export interface BucketCredentials {
   /** The bucket's name. */
   name: string;

@@ -287,7 +287,7 @@ mod token_exchange_for_jobs {
     }
 }
 
-mod token_exchange_for_jobs_with_buckets {
+mod token_exchange_for_jobs_with_a_bucket {
     use super::*;
 
     /// A token from a state repo's job in `environment`, which picks the
@@ -301,7 +301,7 @@ mod token_exchange_for_jobs_with_buckets {
     }
 
     #[tokio::test]
-    async fn issues_prefix_limited_credentials_for_a_profile_with_only_buckets() {
+    async fn issues_prefix_limited_credentials_for_a_profile_with_only_a_bucket() {
         let _t = start().await;
         let before = now();
         let res = job_token(
@@ -311,10 +311,7 @@ mod token_exchange_for_jobs_with_buckets {
         .await;
         assert_eq!(res.status, 200, "{}", res.text);
         let body = res.json();
-        let expires_on = body["buckets"][0]["expires_on"]
-            .as_str()
-            .unwrap()
-            .to_string();
+        let expires_on = body["bucket"]["expires_on"].as_str().unwrap().to_string();
         assert_eq!(
             body,
             json!({
@@ -324,7 +321,7 @@ mod token_exchange_for_jobs_with_buckets {
                 "expires_at": body["expires_at"],
                 "account_id": ACCOUNT_ID,
                 "profile": "terraform-state",
-                "buckets": [{
+                "bucket": {
                     "name": "org-terraform-state",
                     "access_key_id": CLOUDFLARE_TOKEN_ID,
                     "secret_access_key": "r2-secret-value",
@@ -332,7 +329,7 @@ mod token_exchange_for_jobs_with_buckets {
                     "prefixes": ["github.com/example-org/state-app/"],
                     "endpoint": format!("https://{ACCOUNT_ID}.r2.cloudflarestorage.com"),
                     "expires_on": expires_on,
-                }],
+                },
             })
         );
         assert_eq!(expires_on.len(), 20, "{expires_on}");
@@ -355,7 +352,7 @@ mod token_exchange_for_jobs_with_buckets {
     async fn covers_the_whole_bucket_without_prefixes_and_honours_the_requested_ttl() {
         let _t = start().await;
         let res = job_token(&state_repo("whole-bucket", json!({})), &[("ttl", "2h")]).await;
-        assert_eq!(res.json()["buckets"][0]["prefixes"], json!([]));
+        assert_eq!(res.json()["bucket"]["prefixes"], json!([]));
         assert_eq!(
             r2_bodies()[0],
             json!({ "bucket": "org-terraform-state", "parentAccessKeyId": CLOUDFLARE_TOKEN_ID, "permission": "object-read-only", "ttlSeconds": 1800.0 })
@@ -374,65 +371,10 @@ mod token_exchange_for_jobs_with_buckets {
                 .tokens
                 .contains_key(body["token_id"].as_str().unwrap())
         );
-        assert_eq!(body["buckets"][0]["prefixes"], json!(["200000003/"]));
+        assert_eq!(body["bucket"]["prefixes"], json!(["200000003/"]));
         assert_eq!(r2_bodies()[0]["ttlSeconds"], json!(600.0));
-        let bucket_expiry = chrono_secs(body["buckets"][0]["expires_on"].as_str().unwrap());
+        let bucket_expiry = chrono_secs(body["bucket"]["expires_on"].as_str().unwrap());
         assert!((bucket_expiry - body["expires_at"].as_i64().unwrap()).abs() <= 1);
-    }
-
-    #[tokio::test]
-    async fn issues_credentials_for_each_bucket_in_the_policys_order() {
-        let t = start().await;
-        let res = job_token(&state_repo("state-and-artifacts", json!({})), &[]).await;
-        assert_eq!(res.status, 200, "{}", res.text);
-        let buckets: Vec<Value> = res.json()["buckets"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|b| json!([b["name"], b["prefixes"]]))
-            .collect();
-        assert_eq!(
-            buckets,
-            [
-                json!(["org-terraform-state", ["github.com/example-org/state-app/"]]),
-                json!(["org-artifacts", []])
-            ]
-        );
-        let names: Vec<Value> = r2_bodies().iter().map(|b| b["bucket"].clone()).collect();
-        assert_eq!(
-            names,
-            [json!("org-terraform-state"), json!("org-artifacts")]
-        );
-        let issued: Vec<Value> = t
-            .audits("r2.issued")
-            .await
-            .iter()
-            .map(|l| l["bucket"].clone())
-            .collect();
-        assert_eq!(
-            issued,
-            [json!("org-terraform-state"), json!("org-artifacts")]
-        );
-    }
-
-    #[tokio::test]
-    async fn deletes_the_token_when_a_later_buckets_credentials_cant_be_created() {
-        let t = start().await;
-        world().cloudflare.fail_r2_bucket = Some("org-artifacts".into());
-        assert_eq!(
-            job_token(&state_repo("deploy-and-artifacts", json!({})), &[])
-                .await
-                .status,
-            503
-        );
-        assert_eq!(token_count(), 1); // only the Cloudflare token
-        let issued: Vec<Value> = t
-            .audits("r2.issued")
-            .await
-            .iter()
-            .map(|l| l["bucket"].clone())
-            .collect();
-        assert_eq!(issued, [json!("org-terraform-state")]);
     }
 
     #[tokio::test]
@@ -937,7 +879,7 @@ mod providers {
         .await;
         assert_eq!(res.status, 200, "{}", res.text);
         assert_eq!(
-            res.json()["buckets"][0]["prefixes"],
+            res.json()["bucket"]["prefixes"],
             json!(["gitlab.com/group/sub/app/", "4000001/500000001/"])
         );
     }

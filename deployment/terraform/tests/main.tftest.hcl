@@ -391,7 +391,7 @@ run "local_worker_dir" {
 run "profiles_of_any_shape" {
   command = plan
 
-  # Buckets with the broker's {claim} placeholders, which HCL leaves alone, and
+  # A bucket's prefixes with the broker's {claim} placeholders, which HCL leaves alone, and
   # token resources flat in one profile and nested in another.
   variables {
     profiles = [
@@ -399,11 +399,11 @@ run "profiles_of_any_shape" {
         name   = "terraform-state"
         claims = [{ ref = "refs/heads/main" }]
         ttl    = "30m"
-        buckets = [{
+        bucket = {
           name       = "org-terraform-state"
           permission = "object-read-write"
           prefixes   = ["github.com/{repository}/"]
-        }]
+        }
       },
       {
         name   = "deploy-with-state"
@@ -412,11 +412,11 @@ run "profiles_of_any_shape" {
           permissions = ["Workers Scripts Write"]
           resources   = { "com.cloudflare.api.account.0123456789abcdef0123456789abcdef" = "*" }
         }] }
-        buckets = [{
+        bucket = {
           name       = "org-terraform-state"
           permission = "object-read-write"
           prefixes   = ["{repository_owner_id}/{repository_id}/"]
-        }]
+        }
       },
       {
         name   = "every-zone"
@@ -430,12 +430,12 @@ run "profiles_of_any_shape" {
   }
 
   assert {
-    condition     = jsondecode(local.policy_json).profiles[0].buckets[0].prefixes == ["github.com/{repository}/"]
+    condition     = jsondecode(local.policy_json).profiles[0].bucket.prefixes == ["github.com/{repository}/"]
     error_message = "a single-claim placeholder should reach the policy unchanged"
   }
 
   assert {
-    condition     = jsondecode(local.policy_json).profiles[1].buckets[0].prefixes == ["{repository_owner_id}/{repository_id}/"]
+    condition     = jsondecode(local.policy_json).profiles[1].bucket.prefixes == ["{repository_owner_id}/{repository_id}/"]
     error_message = "multi-claim placeholders should reach the policy unchanged"
   }
 

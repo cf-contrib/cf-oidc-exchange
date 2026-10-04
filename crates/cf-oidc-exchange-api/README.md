@@ -43,7 +43,7 @@ A job in repo `200000002`, on `main`, in the `prod` environment, gets a 15-minut
 
 ## Deploy
 
-1. **Create the Cloudflare token.** In the Cloudflare dashboard, create an **account-owned** API token with **Account API Tokens Write**. If any profile has [`buckets`](#buckets), also give it R2 permissions covering what they delegate. It's the broker's only long-lived credential. This is the one manual step: automating it would need a token that can create tokens. Store it in [Secrets Store](https://developers.cloudflare.com/secrets-store/) so it never passes through your deploy tooling:
+1. **Create the Cloudflare token.** In the Cloudflare dashboard, create an **account-owned** API token with **Account API Tokens Write**. If any profile has a [`bucket`](#buckets), also give it R2 permissions covering what the buckets delegate. It's the broker's only long-lived credential. This is the one manual step: automating it would need a token that can create tokens. Store it in [Secrets Store](https://developers.cloudflare.com/secrets-store/) so it never passes through your deploy tooling:
    ```sh
    wrangler secrets-store secret create <store-id> --name cf-oidc-exchange-cloudflare-token --scopes workers --remote
    ```
@@ -64,7 +64,7 @@ A job in repo `200000002`, on `main`, in the `prod` environment, gets a 15-minut
 |---|---|---|---|
 | `CF_OIDC_EXCHANGE_API_ACCOUNT_ID` | plain text | yes | Account the Cloudflare token belongs to and tokens are minted in. |
 | `CF_OIDC_EXCHANGE_API_POLICY` | plain text | yes | The [policy](#policy), as JSON. A Worker variable holds at most 5 KB. |
-| `CF_OIDC_EXCHANGE_API_CLOUDFLARE_TOKEN` | Secrets Store secret | yes | Account-owned token with Account API Tokens Write, plus R2 permissions covering what profiles' `buckets` delegate. Read on every request, so rotating the secret takes effect without a redeploy. Anything else, such as a plain `wrangler secret`, is refused with `500`. |
+| `CF_OIDC_EXCHANGE_API_CLOUDFLARE_TOKEN` | Secrets Store secret | yes | Account-owned token with Account API Tokens Write, plus R2 permissions covering what profiles' buckets delegate. Read on every request, so rotating the secret takes effect without a redeploy. Anything else, such as a plain `wrangler secret`, is refused with `500`. |
 | `CF_OIDC_EXCHANGE_API_SIGNING_KEY` | Secrets Store secret | for profiles with an `audience` | RSA private key (at least 2048 bits), as a PKCS#8 PEM, the broker signs [its own tokens](#tokens-for-other-services) with. Without it the broker issues none, publishes no keys, and those profiles fail closed with `500`. |
 
 The hourly cron (`17 * * * *` in the examples) deletes expired `cf-oidc:*` tokens.
@@ -154,10 +154,10 @@ profiles:
     provider: github
     claims:
       - ref: refs/heads/main
-    buckets:
-      - name: org-terraform-state
-        permission: object-read-write
-        prefixes: ["{repository_owner_id}/{repository_id}/"]
+    bucket:
+      name: org-terraform-state
+      permission: object-read-write
+      prefixes: ["{repository_owner_id}/{repository_id}/"]
 
   - name: tofu-plan                     # for people, through Access
     provider: access
@@ -165,12 +165,12 @@ profiles:
       - email: alice@example.com
       - email: bob@example.com
     max_ttl: 1h
-    buckets:
-      - name: org-terraform-state
-        permission: object-read-only
+    bucket:
+      name: org-terraform-state
+      permission: object-read-only
 ```
 
-A profile has a `token`, `buckets`, or both, for callers with a token from its `provider`. A profile with an `audience` instead issues the broker's own token for that service: see [Tokens for other services](#tokens-for-other-services).
+A profile has a `token`, a `bucket`, or both, for callers with a token from its `provider`. A profile with an `audience` instead issues the broker's own token for that service: see [Tokens for other services](#tokens-for-other-services).
 
 To switch a profile off, for example during an incident, set `enabled: false`. It stays in the policy but never matches, and a request naming it is refused (`invalid_request`).
 
@@ -251,16 +251,16 @@ Keys must start with `com.cloudflare.`, and account keys must name `CF_OIDC_EXCH
 
 ### Buckets
 
-Each entry in `buckets` gets the job [temporary R2 credentials](https://developers.cloudflare.com/r2/api/s3/temporary-credentials/) for that bucket, optionally limited to key prefixes built from the job's claims. One shared bucket can then hold every repo's Terraform state, with each repo limited to its own prefix:
+A profile's `bucket` gets the job [temporary R2 credentials](https://developers.cloudflare.com/r2/api/s3/temporary-credentials/) for that bucket, optionally limited to key prefixes built from the job's claims. One shared bucket can then hold every repo's Terraform state, with each repo limited to its own prefix:
 
 ```yaml
-    buckets:
-      - name: org-terraform-state         # a valid R2 bucket name
-        permission: object-read-write     # or object-read-only; admin levels aren't allowed
-        prefixes: ["github.com/{repository}/"]
+    bucket:
+      name: org-terraform-state           # a valid R2 bucket name
+      permission: object-read-write       # or object-read-only; admin levels aren't allowed
+      prefixes: ["github.com/{repository}/"]
 ```
 
-- **Several buckets** each get their own credentials, and the action exports each one as an AWS profile named after the bucket. A bucket can appear only once per profile.
+- **One bucket per profile,** so the action always exports its credentials as the job's `AWS_*` credentials, and S3 tools work without naming a profile. A job that needs two buckets uses two profiles, in two jobs.
 
 - **Placeholders** are `{claim}`, not `${claim}`, so HCL leaves them alone. Any claim can fill one: `{repository}` from GitHub Actions, `{project_path}` from GitLab, `{email}`… They're filled in from the verified token, never from the request.
 - **Prefixes** must end in `/`, so `github.com/org/site/` doesn't also cover `github.com/org/site-old/`. They can't start with `/` or contain `*`, `..`, empty or `.` segments, or control characters, and each placeholder must be a whole path segment (`tfstate/{repository_id}/`, not `tfstate-{repository_id}/`), so two repos can never end up with the same prefix. These are checked when the policy loads.
@@ -268,18 +268,18 @@ Each entry in `buckets` gets the job [temporary R2 credentials](https://develope
 - **Without `prefixes`** the credentials cover the whole bucket.
 - **Lifetime:** the profile's `ttl`, capped at its `max_ttl`, with the request's `ttl` still honoured. That's the same as the token's, in a profile with both. The credentials **can't be revoked early**, so keep TTLs short.
 - **Parent token:** the Cloudflare token calls `temp-access-credentials` with its own ID as the parent, as in [Cloudflare's example](https://developers.cloudflare.com/r2/examples/authenticate-r2-temp-credentials/), and the credentials can't exceed its permissions. Give it **Workers R2 Storage Write** (R2's "Admin Read & Write"), which is known to work. Cloudflare asks for "at least the permissions you plan to delegate", so an R2 permission limited to the profiles' buckets may be enough, but that hasn't been tried. Without an R2 permission the endpoint refuses the token with code `10000`, which the broker reports as `503` (`temporarily_unavailable`; `Cloudflare: temporaryCredentials.create: returned 403` in the audit log). Admin Read & Write is account-wide, but it doesn't widen what a leaked Cloudflare token can do: with Account API Tokens Write it could already mint itself a token with any R2 permission. The policy still only hands out `object-*` permissions. Revoking or rolling the Cloudflare token cuts off every credential issued from it within seconds, including those of jobs running at that moment. That's the emergency switch.
-- **With both** `token` and `buckets`, the broker mints the token first. If the credentials then can't be created, it deletes the token and replies `503`.
+- **With both** `token` and `bucket`, the broker mints the token first. If the credentials then can't be created, it deletes the token and replies `503`.
 
 > [!WARNING]
-> **The policy decides when a job's `AWS_*` variables are replaced.** The action exports the credentials, and replaces or clears `AWS_*`, whenever the matched profile has `buckets`, including for workflows that don't set `profile`. Set `profile` for R2 in every workflow, and give a job that also talks to AWS its R2 access in a separate job.
+> **The policy decides when a job's `AWS_*` variables are replaced.** The action exports the credentials, replacing `AWS_*`, whenever the matched profile has a `bucket`, including for workflows that don't set `profile`. Set `profile` for R2 in every workflow, and give a job that also talks to AWS its R2 access in a separate job.
 
 **Renamed and reused repo names.** A prefix built from `{repository}` moves when the repo is renamed, and a deleted repo's name can be taken by a new repo in the org, which would then get the old repo's state. `{repository_owner_id}/{repository_id}/` doesn't change on a rename and is never reused.
 
-**What `buckets` doesn't cover:** admin operations such as creating or listing buckets. For those, grant R2 permissions in the profile's `token` and derive S3 credentials from `CLOUDFLARE_API_TOKEN` in a step: the access key ID is the token's ID, and the secret is the SHA-256 of the token value. Buckets in a jurisdiction (`eu`, `fedramp`) need a different endpoint than the one the broker returns.
+**What `bucket` doesn't cover:** admin operations such as creating or listing buckets. For those, grant R2 permissions in the profile's `token` and derive S3 credentials from `CLOUDFLARE_API_TOKEN` in a step: the access key ID is the token's ID, and the secret is the SHA-256 of the token value. Buckets in a jurisdiction (`eu`, `fedramp`) need a different endpoint than the one the broker returns.
 
 ### Tokens for other services
 
-A profile with `audience: <service URL>` gives the caller a token the broker signs itself, for another service that trusts the broker, such as [cf-nix-cache](https://github.com/cf-contrib/cf-nix-cache). It has no `token` or `buckets`: who may use the service is decided by the profile's `claims`, like any other.
+A profile with `audience: <service URL>` gives the caller a token the broker signs itself, for another service that trusts the broker, such as [cf-nix-cache](https://github.com/cf-contrib/cf-nix-cache). It has no `token` or `bucket`: who may use the service is decided by the profile's `claims`, like any other.
 
 ```yaml
   - name: nix-push
@@ -313,7 +313,7 @@ Its `kid` is the public key's thumbprint, so replacing the secret rotates the ke
 ### TTL and names
 
 - Durations look like `90s`, `15m`, `1h`, `1h30m`.
-- `ttl` and `max_ttl` go on the profile, and apply to its token and buckets alike.
+- `ttl` and `max_ttl` go on the profile, and apply to its token and bucket alike.
 - A requested `ttl` above the profile's `max_ttl` is clamped. Below `1m`, or unparseable, is a `400`.
 - Minted tokens are named `cf-oidc:<provider>:<sub>`, at most 120 characters.
 
@@ -375,11 +375,11 @@ The response has the standard fields plus the broker's own:
   "token_id": "…",
   "account_id": "0123456789abcdef0123456789abcdef",
   "profile": "workers-deploy",
-  "buckets": [{ "name": "…", "access_key_id": "…", "secret_access_key": "…", "session_token": "…", "prefixes": ["…"], "endpoint": "…", "expires_on": "…" }]
+  "bucket": { "name": "…", "access_key_id": "…", "secret_access_key": "…", "session_token": "…", "prefixes": ["…"], "endpoint": "…", "expires_on": "…" }
 }
 ```
 
-`buckets` is there when the profile has buckets. A profile with only buckets has no single bearer token, so it returns no `access_token` or `token_id`, with `issued_token_type` `urn:cf-oidc-exchange:params:oauth:token-type:r2-credentials` and `token_type` `N_A`. For a service's audience, `access_token` is the broker's JWT access token, `issued_token_type` is `urn:ietf:params:oauth:token-type:access_token` (or `…:jwt`, if that's what `requested_token_type` asked for), and there's no `token_id`, `account_id` or `buckets`.
+`bucket` is there when the profile has one. A profile with only a bucket has no bearer token, so it returns no `access_token` or `token_id`, with `issued_token_type` `urn:cf-oidc-exchange:params:oauth:token-type:r2-credentials` and `token_type` `N_A`. For a service's audience, `access_token` is the broker's JWT access token, `issued_token_type` is `urn:ietf:params:oauth:token-type:access_token` (or `…:jwt`, if that's what `requested_token_type` asked for), and there's no `token_id`, `account_id` or `bucket`.
 
 Errors are the same as on every route.
 

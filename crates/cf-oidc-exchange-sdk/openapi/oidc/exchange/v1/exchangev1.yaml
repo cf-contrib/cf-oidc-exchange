@@ -40,7 +40,7 @@ paths:
               $ref: "#/components/schemas/TokenExchangeRequest"
       responses:
         "200":
-          description: Issued. A profile with only buckets returns no `access_token` and `token_type` `N_A`.
+          description: Issued. A profile with only a bucket returns no `access_token` and `token_type` `N_A`.
           headers:
             Cache-Control:
               schema:
@@ -204,7 +204,7 @@ components:
         access_token:
           type: string
           description: >-
-            The Cloudflare API token, absent for a profile with only buckets; or, for a
+            The Cloudflare API token, absent for a profile with only a bucket; or, for a
             service's audience, the JWT access token (RFC 9068, `typ` `at+jwt`) the broker
             signed.
         issued_token_type:
@@ -227,13 +227,11 @@ components:
           description: The Cloudflare account, for the Cloudflare audience.
         profile:
           type: string
-        buckets:
-          type: array
-          items:
-            $ref: "#/components/schemas/BucketCredentials"
+        bucket:
+          $ref: "#/components/schemas/BucketCredentials"
     BucketCredentials:
       type: object
-      description: S3 credentials for one R2 bucket, limited to `prefixes`. They can't be revoked; they expire.
+      description: S3 credentials for the profile's R2 bucket, limited to `prefixes`. They can't be revoked; they expire.
       required: [name, access_key_id, secret_access_key, session_token, prefixes, endpoint, expires_on]
       properties:
         name:

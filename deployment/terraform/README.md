@@ -47,8 +47,8 @@ by default deploys the broker of the release its `ref` points to.
 - The **Cloudflare token**, an account-owned API token with
   **Account API Tokens Write** (see the [broker's README](../../crates/cf-oidc-exchange-api#deploy)),
   stored in [Secrets Store](https://developers.cloudflare.com/secrets-store/) (open beta).
-  If any profile has `buckets`, the token also needs R2 permissions
-  covering what they delegate: it creates their credentials and is
+  If any profile has a `bucket`, the token also needs R2 permissions
+  covering what it delegates: it creates their credentials and is
   their parent (see [Buckets](../../crates/cf-oidc-exchange-api#buckets)).
 - A separate API token for *deploying*, exported as `CLOUDFLARE_API_TOKEN`, with:
   - **Account → Workers Scripts: Edit**
@@ -128,11 +128,11 @@ hard-coded:
     {
       name   = "terraform-state" # every repo gets its own prefix in one shared bucket
       claims = [{ ref = "refs/heads/main" }]
-      buckets = [{
+      bucket = {
         name       = "org-terraform-state"
         permission = "object-read-write"
         prefixes   = ["{repository_owner_id}/{repository_id}/"] # filled in by the broker, per job
-      }]
+      }
     },
   ]
 ```
@@ -180,7 +180,7 @@ worker-build --release   # worker_dir = ".../crates/cf-oidc-exchange-api/build"
 | `account_id` | yes | | Cloudflare account ID. The broker runs here and mints tokens for it. |
 | `hostname` | yes | | `<worker_name>.<subdomain>.workers.dev`, or a custom domain. |
 | `zone_id` | for a custom domain | `null` | Zone ID of the zone holding a custom-domain `hostname`. |
-| `cloudflare_token_secret` | yes | | `{ secret_store_id, secret_name }` of the Secrets Store secret holding the Cloudflare token. With `buckets`, the token also needs R2 permissions covering what they delegate. |
+| `cloudflare_token_secret` | yes | | `{ secret_store_id, secret_name }` of the Secrets Store secret holding the Cloudflare token. With a profile's `bucket`, the token also needs R2 permissions covering what it delegates. |
 | `signing_key_secret` | for profiles with an `audience` | `null` | `{ secret_store_id, secret_name }` of the Secrets Store secret holding the RSA key the broker signs its own tokens with. See [Tokens for other services](../../crates/cf-oidc-exchange-api#tokens-for-other-services). |
 | `oidc_providers` | yes | | The OIDC issuers the broker trusts: `{ name, issuer, audience?, jwks_uri?, typ?, claims }` each. `audience` defaults to the broker's URL. See [Policy](#policy). |
 | `profiles` | yes | | What callers may get, in the policy's format. See [Policy](#policy). |

@@ -2,7 +2,7 @@
 // Runs main.js and post.js as the runner would: separate Node processes, with
 // INPUT_*, GITHUB_ENV, GITHUB_STATE and the OIDC request variables set.
 import { execFile } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -11,7 +11,6 @@ import {
   REQUEST_TOKEN,
   STUB_ACCOUNT_ID,
   STUB_BUCKET,
-  STUB_BUCKET_2,
   STUB_R2_PROFILE,
   STUB_TOKEN,
   STUB_TOKEN_ID,
@@ -50,7 +49,7 @@ function parseCommandFile(path) {
  */
 async function action(script, env) {
   const dir = mkdtempSync(join(tmpdir(), "cf-oidc-exchange-"));
-  const files = { GITHUB_ENV: join(dir, "env"), GITHUB_STATE: join(dir, "state"), RUNNER_TEMP: join(dir, "temp") };
+  const files = { GITHUB_ENV: join(dir, "env"), GITHUB_STATE: join(dir, "state") };
   writeFileSync(files.GITHUB_ENV, "");
   writeFileSync(files.GITHUB_STATE, "");
   /** @type {Record<string, string>} */
@@ -71,8 +70,6 @@ async function action(script, env) {
     stdout,
     env: parseCommandFile(files.GITHUB_ENV),
     state: parseCommandFile(files.GITHUB_STATE),
-    /** Where main.js writes the R2 credentials file. */
-    credentialsFile: join(files.RUNNER_TEMP, "cf-oidc", "credentials"),
   };
 }
 
@@ -137,28 +134,21 @@ describe("main", () => {
     });
   });
 
-  /** @param {typeof STUB_BUCKET} b */
-  const profile = (b) =>
-    `[${b.name}]\naws_access_key_id = ${b.access_key_id}\naws_secret_access_key = ${b.secret_access_key}\naws_session_token = ${b.session_token}\n`;
-  const ARTIFACTS = STUB_BUCKET_2;
-
-  /** What every response with buckets exports. @param {string} file */
-  const bucketEnv = (file) => ({
-    AWS_SHARED_CREDENTIALS_FILE: file,
-    AWS_ENDPOINT_URL_S3: `https://${STUB_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-    AWS_REGION: "auto",
-    AWS_DEFAULT_REGION: "auto",
-  });
-  /** What a single bucket also exports. */
-  const SINGLE_ENV = {
+  /** What a bucket exports. */
+  const BUCKET_ENV = {
     AWS_ACCESS_KEY_ID: STUB_BUCKET.access_key_id,
     AWS_SECRET_ACCESS_KEY: STUB_BUCKET.secret_access_key,
     AWS_SESSION_TOKEN: STUB_BUCKET.session_token,
     AWS_SECURITY_TOKEN: STUB_BUCKET.session_token,
+    AWS_ENDPOINT_URL_S3: `https://${STUB_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+    AWS_REGION: "auto",
+    AWS_DEFAULT_REGION: "auto",
     CLOUDFLARE_R2_BUCKET: STUB_BUCKET.name,
+    CLOUDFLARE_R2_PREFIXES: JSON.stringify(["github.com/example-org/app/"]),
+    CLOUDFLARE_R2_PREFIX: "github.com/example-org/app/",
   };
 
-  it("exports R2 credentials, and no API token, for a profile with only buckets", async () => {
+  it("exports R2 credentials, and no API token, for a profile with only a bucket", async () => {
     stub = await startStub();
     const r = await action("main.js", {
       ...oidcEnv(stub.url),
@@ -167,16 +157,10 @@ describe("main", () => {
     });
 
     expect(r.code).toBe(0);
-    expect(r.env).toEqual({
-      CLOUDFLARE_ACCOUNT_ID: STUB_ACCOUNT_ID,
-      ...bucketEnv(r.credentialsFile),
-      CLOUDFLARE_R2_BUCKETS: JSON.stringify({ "org-terraform-state": ["github.com/example-org/app/"] }),
-      ...SINGLE_ENV,
-      CLOUDFLARE_R2_PREFIX: "github.com/example-org/app/",
-    });
-    expect(r.state).toEqual({ credentials_file: r.credentialsFile, r2_expires_on: STUB_BUCKET.expires_on });
+    expect(r.env).toEqual({ CLOUDFLARE_ACCOUNT_ID: STUB_ACCOUNT_ID, ...BUCKET_ENV });
+    expect(r.state).toEqual({ r2_expires_on: STUB_BUCKET.expires_on });
     expect(r.stdout).toContain(
-      "cf-oidc: issued R2 credentials for bucket org-terraform-state under github.com/example-org/app/ as AWS profile org-terraform-state (profile smoke-r2, expires 2026-09-28T12:15:00Z)",
+      "cf-oidc: issued R2 credentials for bucket org-terraform-state under github.com/example-org/app/ (profile smoke-r2, expires 2026-09-28T12:15:00Z)",
     );
     expect(r.stdout).not.toContain("minted token");
     // The secrets only ever appear in the mask commands.
@@ -186,84 +170,37 @@ describe("main", () => {
     }
   });
 
-  it("also writes a single bucket's credentials as a named profile, readable only by the runner user", async () => {
-    stub = await startStub({ tokenFields: { buckets: [STUB_BUCKET] } });
-    const r = await action("main.js", { ...oidcEnv(stub.url), INPUT_URL: stub.url });
-    expect(r.code).toBe(0);
-    expect(readFileSync(r.credentialsFile, "utf8")).toBe(profile(STUB_BUCKET));
-    expect(statSync(r.credentialsFile).mode & 0o777).toBe(0o600);
-  });
-
-  it("exports both for a profile with a token and buckets", async () => {
-    stub = await startStub({ tokenFields: { buckets: [STUB_BUCKET] } });
-    const r = await action("main.js", { ...oidcEnv(stub.url), INPUT_URL: stub.url });
-    expect(r.code).toBe(0);
-    expect(r.env).toMatchObject({
-      CLOUDFLARE_API_TOKEN: STUB_TOKEN,
-      CLOUDFLARE_ACCOUNT_ID: STUB_ACCOUNT_ID,
-      ...bucketEnv(r.credentialsFile),
-      ...SINGLE_ENV,
-    });
-    expect(r.state).toEqual({
-      token: STUB_TOKEN,
-      token_id: STUB_TOKEN_ID,
-      credentials_file: r.credentialsFile,
-      r2_expires_on: STUB_BUCKET.expires_on,
-    });
-  });
-
-  it.each([[[]], [["a/", "b/"]]])("exports an empty CLOUDFLARE_R2_PREFIX for prefixes %j", async (prefixes) => {
-    stub = await startStub({ tokenFields: { buckets: [{ ...STUB_BUCKET, prefixes }] } });
-    const r = await action("main.js", { ...oidcEnv(stub.url), INPUT_URL: stub.url });
-    expect(r.code).toBe(0);
-    expect(r.env).toMatchObject({ ...SINGLE_ENV, CLOUDFLARE_R2_PREFIX: "" });
-  });
-
-  it("exports no AWS variables when the profile has no buckets", async () => {
-    stub = await startStub();
-    const r = await action("main.js", { ...oidcEnv(stub.url), INPUT_URL: stub.url });
-    expect(Object.keys(r.env).some((k) => k.startsWith("AWS_") || k.startsWith("CLOUDFLARE_R2_"))).toBe(false);
-    expect(existsSync(r.credentialsFile)).toBe(false);
-  });
-
-  it("exports several buckets as named profiles, with no default credentials", async () => {
-    stub = await startStub({ tokenFields: { buckets: [STUB_BUCKET, ARTIFACTS] } });
+  it("exports both for a profile with a token and a bucket", async () => {
+    stub = await startStub({ tokenFields: { bucket: STUB_BUCKET } });
     const r = await action("main.js", { ...oidcEnv(stub.url), INPUT_URL: stub.url });
     expect(r.code).toBe(0);
     expect(r.env).toEqual({
       CLOUDFLARE_API_TOKEN: STUB_TOKEN,
       CLOUDFLARE_ACCOUNT_ID: STUB_ACCOUNT_ID,
-      ...bucketEnv(r.credentialsFile),
-      CLOUDFLARE_R2_BUCKETS: JSON.stringify({
-        "org-terraform-state": ["github.com/example-org/app/"],
-        "org-artifacts": [],
-      }),
-      // Cleared, so a step that forgets its profile fails instead of using stale credentials.
-      AWS_ACCESS_KEY_ID: "",
-      AWS_SECRET_ACCESS_KEY: "",
-      AWS_SESSION_TOKEN: "",
-      AWS_SECURITY_TOKEN: "",
-      CLOUDFLARE_R2_BUCKET: "",
-      CLOUDFLARE_R2_PREFIX: "",
+      ...BUCKET_ENV,
     });
-    expect(readFileSync(r.credentialsFile, "utf8")).toBe(`${profile(STUB_BUCKET)}\n${profile(ARTIFACTS)}`);
-    expect(r.stdout).toContain("as AWS profile org-artifacts");
-    const out = r.stdout.split("\n");
-    for (const secret of [ARTIFACTS.secret_access_key, ARTIFACTS.session_token]) {
-      expect(out.filter((l) => l.includes(secret))).toEqual([`::add-mask::${secret}`]);
-    }
+    expect(r.state).toEqual({
+      token: STUB_TOKEN,
+      token_id: STUB_TOKEN_ID,
+      r2_expires_on: STUB_BUCKET.expires_on,
+    });
   });
 
-  it.each([
-    ["a bucket name that isn't R2's", { ...STUB_BUCKET, name: "org]\n[default" }],
-    ["a newline in a secret", { ...STUB_BUCKET, secret_access_key: "secret\naws_access_key_id = x" }],
-  ])("refuses %s, before writing the credentials file", async (_, bucket) => {
-    stub = await startStub({ tokenFields: { buckets: [bucket] } });
+  it.each([[[]], [["a/", "b/"]]])("exports an empty CLOUDFLARE_R2_PREFIX for prefixes %j", async (prefixes) => {
+    stub = await startStub({ tokenFields: { bucket: { ...STUB_BUCKET, prefixes } } });
     const r = await action("main.js", { ...oidcEnv(stub.url), INPUT_URL: stub.url });
-    expect(r.code).toBe(1);
-    expect(r.stdout).toContain("::error::cf-oidc broker returned an invalid response: malformed buckets.0");
-    expect(existsSync(r.credentialsFile)).toBe(false);
-    expect(r.env).toEqual({});
+    expect(r.code).toBe(0);
+    expect(r.env).toMatchObject({
+      CLOUDFLARE_R2_BUCKET: STUB_BUCKET.name,
+      CLOUDFLARE_R2_PREFIXES: JSON.stringify(prefixes),
+      CLOUDFLARE_R2_PREFIX: "",
+    });
+  });
+
+  it("exports no AWS variables when the profile has no bucket", async () => {
+    stub = await startStub();
+    const r = await action("main.js", { ...oidcEnv(stub.url), INPUT_URL: stub.url });
+    expect(Object.keys(r.env).some((k) => k.startsWith("AWS_") || k.startsWith("CLOUDFLARE_R2_"))).toBe(false);
   });
 
   it.each([
@@ -271,11 +208,11 @@ describe("main", () => {
     ["token_id", { token_id: undefined }],
     ["expires_at", { expires_at: undefined }],
     ["account_id", { account_id: undefined }],
-    ["token and buckets", { access_token: undefined, token_id: undefined }],
-    ["buckets.0.name", { buckets: [{ ...STUB_BUCKET, name: undefined }] }],
-    ["buckets.0.session_token", { buckets: [{ ...STUB_BUCKET, session_token: undefined }] }],
-    ["buckets.0.secret_access_key", { buckets: [{ ...STUB_BUCKET, secret_access_key: "" }] }],
-    ["buckets.0.prefixes", { buckets: [{ ...STUB_BUCKET, prefixes: undefined }] }],
+    ["token and bucket", { access_token: undefined, token_id: undefined }],
+    ["bucket.name", { bucket: { ...STUB_BUCKET, name: undefined } }],
+    ["bucket.session_token", { bucket: { ...STUB_BUCKET, session_token: undefined } }],
+    ["bucket.secret_access_key", { bucket: { ...STUB_BUCKET, secret_access_key: "" } }],
+    ["bucket.prefixes", { bucket: { ...STUB_BUCKET, prefixes: undefined } }],
   ])("fails clearly when the broker response lacks %s", async (field, tokenFields) => {
     stub = await startStub({ tokenFields });
     const r = await action("main.js", { ...oidcEnv(stub.url), INPUT_URL: stub.url });
@@ -350,21 +287,7 @@ describe("post", () => {
     ]);
   });
 
-  it("deletes the credentials file", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "cf-oidc-exchange-"));
-    const file = join(dir, "credentials");
-    writeFileSync(file, "[org-terraform-state]\n");
-    const r = await action("post.js", {
-      INPUT_URL: "https://cf-oidc-exchange.example.com",
-      STATE_credentials_file: file,
-      STATE_r2_expires_on: STUB_BUCKET.expires_on,
-    });
-    expect(r.code).toBe(0);
-    expect(existsSync(file)).toBe(false);
-    expect(r.stdout).toContain(`cf-oidc: deleted ${file}`);
-  });
-
-  it("only logs when the R2 credentials expire for a profile with only buckets", async () => {
+  it("only logs when the R2 credentials expire for a profile with only a bucket", async () => {
     stub = await startStub();
     const r = await action("post.js", { INPUT_URL: stub.url, STATE_r2_expires_on: STUB_BUCKET.expires_on });
     expect(r.code).toBe(0);

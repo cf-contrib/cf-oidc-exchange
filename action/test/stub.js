@@ -17,20 +17,10 @@ export const STUB_BUCKET = {
   endpoint: `https://${STUB_ACCOUNT_ID}.r2.cloudflarestorage.com`,
   expires_on: "2026-09-28T12:15:00Z",
 };
-export const STUB_BUCKET_2 = {
-  ...STUB_BUCKET,
-  name: "org-artifacts",
-  access_key_id: "stub-r2-access-key-id-2",
-  secret_access_key: "stub-r2-secret-access-key-2",
-  session_token: "stub-r2-session-token-2",
-  prefixes: [],
-};
 const ACCESS_TOKEN = "urn:ietf:params:oauth:token-type:access_token";
 const R2_CREDENTIALS = "urn:cf-oidc-exchange:params:oauth:token-type:r2-credentials";
-/** A profile the stub answers as one with only buckets: no token, just STUB_BUCKET. */
+/** A profile the stub answers as one with only a bucket: no token, just STUB_BUCKET. */
 export const STUB_R2_PROFILE = "smoke-r2";
-/** A profile the stub answers as one with two buckets and no token. */
-export const STUB_R2_PROFILE_2 = "smoke-r2-multi";
 
 /**
  * @typedef {{ method: string, path: string, authorization?: string, body?: unknown }} Call
@@ -81,14 +71,11 @@ export function startStub({
       if (tokenStatus === 404) return send(404);
       if (tokenStatus !== 200)
         return send(tokenStatus, { error: "invalid_request", error_description: "no profile matches the token" });
-      // 2026-09-28T12:15:00Z, like the stub buckets' expires_on.
+      // 2026-09-28T12:15:00Z, like the stub bucket's expires_on.
       const expires = { expires_in: 900, expires_at: 1790597700 };
       const r2 = { ...expires, issued_token_type: R2_CREDENTIALS, token_type: "N_A", account_id: STUB_ACCOUNT_ID };
       if (body?.profile === STUB_R2_PROFILE) {
-        return send(200, { ...r2, profile: STUB_R2_PROFILE, buckets: [STUB_BUCKET], ...tokenFields });
-      }
-      if (body?.profile === STUB_R2_PROFILE_2) {
-        return send(200, { ...r2, profile: STUB_R2_PROFILE_2, buckets: [STUB_BUCKET, STUB_BUCKET_2], ...tokenFields });
+        return send(200, { ...r2, profile: STUB_R2_PROFILE, bucket: STUB_BUCKET, ...tokenFields });
       }
       return send(200, {
         access_token: STUB_TOKEN,

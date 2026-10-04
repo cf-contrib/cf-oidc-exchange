@@ -37,7 +37,7 @@ const ACCOUNT_KEY: &str = "CF_OIDC_EXCHANGE_API_ACCOUNT_ID";
 const POLICY_KEY: &str = "CF_OIDC_EXCHANGE_API_POLICY";
 
 /// The binding of the Cloudflare token: account-owned, with "Account API Tokens
-/// Write", plus R2 permissions covering what profiles' `buckets` delegate.
+/// Write", plus R2 permissions covering what profiles' buckets delegate.
 const CLOUDFLARE_TOKEN_KEY: &str = "CF_OIDC_EXCHANGE_API_CLOUDFLARE_TOKEN";
 
 /// The binding of the RSA private key (PKCS#8 PEM, at least 2048 bits) the
@@ -483,7 +483,7 @@ pub struct ProfileConfig {
     pub audience: String,
     /// A token must match one of these, as well as one of its provider's.
     pub claims: ClaimRules,
-    /// For everything it hands out, the token and the buckets' credentials,
+    /// For everything it hands out, the token and the bucket's credentials,
     /// in milliseconds. Taken from the defaults when unset.
     #[serde(default, deserialize_with = "duration")]
     pub ttl: u64,
@@ -491,9 +491,9 @@ pub struct ProfileConfig {
     #[serde(default, deserialize_with = "duration")]
     pub max_ttl: u64,
     pub token: Option<TokenConfig>,
-    /// Each bucket gets its own credentials, which the action exports as an
-    /// AWS profile named after it.
-    pub buckets: Option<Vec<BucketConfig>>,
+    /// The bucket its caller gets R2 credentials for. One per profile, so the
+    /// action always exports them as the job's AWS credentials.
+    pub bucket: Option<BucketConfig>,
 }
 
 impl ProfileConfig {
@@ -554,10 +554,10 @@ impl ProfileConfig {
         // Guardrail 5: audiences are kept apart. The broker signs its own
         // token for another service; Cloudflare credentials are another
         // profile's job.
-        let credentials = self.token.is_some() || self.buckets.is_some();
+        let credentials = self.token.is_some() || self.bucket.is_some();
         if self.audience == CLOUDFLARE_AUDIENCE {
             if !credentials {
-                return Err(format!("{at} must have a token, buckets or both"));
+                return Err(format!("{at} must have a token, a bucket or both"));
             }
         } else {
             check_origin(&self.audience).map_err(|why| format!("{at}.audience {why}"))?;
@@ -568,7 +568,7 @@ impl ProfileConfig {
             }
             if credentials {
                 return Err(format!(
-                    "{at}: a profile for {} can't have a token or buckets",
+                    "{at}: a profile for {} can't have a token or a bucket",
                     self.audience
                 ));
             }
@@ -577,23 +577,8 @@ impl ProfileConfig {
         if let Some(token) = &self.token {
             token.check(&format!("{at}.token"), account_id)?;
         }
-        if let Some(buckets) = &self.buckets {
-            if buckets.is_empty() {
-                return Err(format!("{at}.buckets must name at least one bucket"));
-            }
-            for (index, bucket) in buckets.iter().enumerate() {
-                bucket.check(&format!("{at}.buckets[{index}]"))?;
-                // The name is also the AWS profile's, so it can only appear once.
-                if buckets[..index]
-                    .iter()
-                    .any(|other| other.name == bucket.name)
-                {
-                    return Err(format!(
-                        "{at}.buckets[{index}]: {} is named twice",
-                        bucket.name
-                    ));
-                }
-            }
+        if let Some(bucket) = &self.bucket {
+            bucket.check(&format!("{at}.bucket"))?;
         }
 
         // Guardrail 4: TTLs are capped, well within the 7 days R2 credentials
@@ -1365,11 +1350,11 @@ pub(super) mod tests {
         let cases = [
             (
                 json!({ "name": "nothing", "claims": [{ "ref": "x" }] }),
-                "profiles[2] must have a token, buckets or both",
+                "profiles[2] must have a token, a bucket or both",
             ),
             (
                 json!({ "name": "both", "audience": CACHE, "claims": [{ "ref": "x" }], "token": token() }),
-                "a profile for https://cf-nix-cache.example.com can't have a token or buckets",
+                "a profile for https://cf-nix-cache.example.com can't have a token or a bucket",
             ),
             (
                 json!({ "name": "self", "audience": BROKER, "claims": [{ "ref": "x" }] }),
@@ -1387,8 +1372,8 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn checks_buckets() {
-        let bucket = |bucket: Value| json!({ "name": "state", "claims": [{ "ref": "x" }], "buckets": [bucket] });
+    fn checks_the_bucket() {
+        let bucket = |bucket: Value| json!({ "name": "state", "claims": [{ "ref": "x" }], "bucket": bucket });
         let cases = [
             (
                 bucket(json!({ "name": "Org_State", "permission": "object-read-write" })),
@@ -1399,12 +1384,8 @@ pub(super) mod tests {
                 "unknown variant `admin`",
             ),
             (
-                json!({ "name": "state", "claims": [{ "ref": "x" }], "buckets": [{ "name": "org-state", "permission": "object-read-only" }, { "name": "org-state", "permission": "object-read-write" }] }),
-                "org-state is named twice",
-            ),
-            (
-                json!({ "name": "state", "claims": [{ "ref": "x" }], "buckets": [] }),
-                "must name at least one bucket",
+                json!({ "name": "state", "claims": [{ "ref": "x" }], "buckets": [{ "name": "org-state", "permission": "object-read-only" }] }),
+                "unknown field `buckets`",
             ),
         ];
         for (profile, expected) in cases {
