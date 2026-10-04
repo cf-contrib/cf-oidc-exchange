@@ -19,7 +19,6 @@ updates:
     directories:
       - "/"
       - "/action"
-      - "/crates/cf-oidc-exchange-sdk/openapi"
     schedule:
       interval: "weekly"
     # Matches pnpm's minimumReleaseAge gate, so updates don't fail install.
@@ -29,6 +28,20 @@ updates:
       # The action runs on node24; keep the types on the same major.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+    open-pull-requests-limit: 10
+    groups:
+      all-npm:
+        patterns: ["*"]
+    labels:
+      - "dependencies"
+      - "auto-merge"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+  - package-ecosystem: "npm"
+    directory: "/crates/cf-oidc-exchange-sdk/openapi"
+    schedule:
+      interval: "weekly"
     open-pull-requests-limit: 10
     groups:
       all-npm:

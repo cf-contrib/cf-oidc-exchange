@@ -25,7 +25,8 @@ jobs:
       - name: Check OpenAPI Document
         working-directory: crates/cf-oidc-exchange-sdk/openapi
         run: |
-          nix develop --command pnpm run generate
+          nix develop --command npm ci
+          nix develop --command npm run generate
           git diff --exit-code .
       - name: Lint
         run: nix develop --command pnpm lint
