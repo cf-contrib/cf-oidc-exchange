@@ -15,8 +15,8 @@ Edit the `.tsp`, then compile it:
 
 ```sh
 cd openapi
-nix develop -c pnpm install        # once; it's in the repository's pnpm workspace
-nix develop -c pnpm run generate   # after editing the .tsp
+nix develop -c npm ci             # once
+nix develop -c npm run generate   # after editing the .tsp
 ```
 
 CI compiles it again and fails if the document differs from the one checked in.

@@ -1,5 +1,4 @@
 packages:
   - "action"
-  - "crates/cf-oidc-exchange-sdk/openapi"
 allowBuilds:
   esbuild: true
