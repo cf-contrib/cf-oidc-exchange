@@ -16,12 +16,10 @@ updates:
       prefix: "chore"
       include: "scope"
   - package-ecosystem: "npm"
-    directories:
-      - "/"
-      - "/action"
+    directory: "/action"
     schedule:
       interval: "weekly"
-    # Matches pnpm's minimumReleaseAge gate, so updates don't fail install.
+    # Lets a new release age a few days before it's proposed.
     cooldown:
       default-days: 3
     ignore:
