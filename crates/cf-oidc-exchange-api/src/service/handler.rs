@@ -1,11 +1,13 @@
-//! The broker's API: every operation of the SDK's `ExchangeServiceApi`, in
-//! [`ExchangeServiceHandler`], over the policy and secrets in the Worker's
-//! [`Config`]: the token exchange, revocation, and the metadata and keys
-//! services verify the broker's own tokens with.
+//! The broker's API: the SDK's two generated traits, each in a handler over
+//! the policy and secrets in the Worker's [`Config`]. [`TokenServiceHandler`]
+//! is `TokenServiceApi`: the token exchange and revocation, and the cron's
+//! cleanup of the tokens the broker minted. [`DiscoveryServiceHandler`] is
+//! `DiscoveryServiceApi`: the metadata and keys services verify the broker's
+//! own tokens with, which are public.
 //!
 //! # Send
 //!
-//! The generated trait wants `Send` futures, so axum can serve them on any
+//! The generated traits want `Send` futures, so axum can serve them on any
 //! thread. Fetch, Secrets Store and WebCrypto futures aren't `Send`: they hold
 //! JavaScript values. A Worker is single-threaded, so each method runs its body
 //! in a `SendFuture`, which asserts it.
@@ -29,10 +31,10 @@ use std::sync::Arc;
 
 use cf_oidc_core::{AccessTokenClaims, Jwt, SigningKey};
 use cf_oidc_exchange_sdk::v1::{
-    self, AuthorizationServerMetadata, BucketCredentials, Error, ErrorCode, ExchangeServiceApi,
+    self, AuthorizationServerMetadata, BucketCredentials, DiscoveryServiceApi, Error, ErrorCode,
     IssuedTokenType, Jwks, OpenIdProviderMetadata, TokenExchangeRequest,
     TokenExchangeRequestSubjectTokenType as SubjectTokenType, TokenExchangeResponse,
-    TokenExchangeResponseTokenType as TokenType, TokenRevocationRequest,
+    TokenExchangeResponseTokenType as TokenType, TokenRevocationRequest, TokenServiceApi,
 };
 use chrono::DateTime;
 use cloudflare::v4::{
@@ -58,13 +60,27 @@ const NAME_MAX: usize = 120;
 /// Tokens listed per page by the cleanup.
 const PAGE_SIZE: usize = 50;
 
-/// The broker's API, over the Worker's configuration.
+/// The signing key, read now, or `None` if none is bound: what the broker
+/// signs its own tokens with, and publishes the public half of.
+async fn signing_key(config: &Config) -> Result<Option<SigningKey>, Error> {
+    let misconfigured = |why: String| Error::new(ErrorCode::ServerError, why);
+    match config.signing_key().await {
+        Ok(Some(pem)) => SigningKey::import(&pem)
+            .await
+            .map(Some)
+            .map_err(|err| misconfigured(format!("the signing key: {err}"))),
+        Ok(None) => Ok(None),
+        Err(err) => Err(misconfigured(err.to_string())),
+    }
+}
+
+/// The token endpoints, over the Worker's configuration.
 #[derive(Clone)]
-pub struct ExchangeServiceHandler {
+pub struct TokenServiceHandler {
     config: Arc<Config>,
 }
 
-impl ExchangeServiceHandler {
+impl TokenServiceHandler {
     /// A handler over the Worker's configuration, shared with the auth layer.
     pub fn new(config: Arc<Config>) -> Self {
         Self { config }
@@ -74,19 +90,6 @@ impl ExchangeServiceHandler {
     async fn cloudflare(&self) -> Result<HttpClient, Error> {
         let client = self.config.cloudflare().client().await;
         client.map_err(|err| Error::new(ErrorCode::ServerError, err.to_string()))
-    }
-
-    /// The signing key, read now, or `None` if none is bound.
-    async fn signing_key(&self) -> Result<Option<SigningKey>, Error> {
-        let misconfigured = |why: String| Error::new(ErrorCode::ServerError, why);
-        match self.config.signing_key().await {
-            Ok(Some(pem)) => SigningKey::import(&pem)
-                .await
-                .map(Some)
-                .map_err(|err| misconfigured(format!("the signing key: {err}"))),
-            Ok(None) => Ok(None),
-            Err(err) => Err(misconfigured(err.to_string())),
-        }
     }
 
     /// Deletes expired `cf-oidc:` tokens, for the hourly cron. Returns how many.
@@ -155,7 +158,7 @@ impl ExchangeServiceHandler {
         ttl: u64,
         issued_token_type: IssuedTokenType,
     ) -> Result<TokenExchangeResponse, Error> {
-        let Some(key) = self.signing_key().await? else {
+        let Some(key) = signing_key(&self.config).await? else {
             return Err(Error::new(
                 ErrorCode::ServerError,
                 format!(
@@ -395,7 +398,7 @@ impl ExchangeServiceHandler {
 }
 
 #[async_trait::async_trait]
-impl ExchangeServiceApi for ExchangeServiceHandler {
+impl TokenServiceApi for TokenServiceHandler {
     /// `POST /oauth/token`: an RFC 8693 token exchange. The caller's token,
     /// which the auth layer verified, for what the profile it matches hands
     /// out.
@@ -624,7 +627,23 @@ impl ExchangeServiceApi for ExchangeServiceHandler {
         })
         .await
     }
+}
 
+/// The discovery endpoints, over the Worker's configuration.
+#[derive(Clone)]
+pub struct DiscoveryServiceHandler {
+    config: Arc<Config>,
+}
+
+impl DiscoveryServiceHandler {
+    /// A handler over the Worker's configuration.
+    pub fn new(config: Arc<Config>) -> Self {
+        Self { config }
+    }
+}
+
+#[async_trait::async_trait]
+impl DiscoveryServiceApi for DiscoveryServiceHandler {
     /// `GET /.well-known/oauth-authorization-server`: the broker's
     /// Authorization Server Metadata (RFC 8414), so services can find its keys
     /// and endpoints. It issues tokens by exchange only, so there's no
@@ -683,7 +702,7 @@ impl ExchangeServiceApi for ExchangeServiceHandler {
     async fn jwks(&self) -> v1::JwksResponse {
         SendFuture::new(async move {
             let keys = async {
-                let Some(key) = self.signing_key().await? else {
+                let Some(key) = signing_key(&self.config).await? else {
                     return Ok(Jwks { keys: vec![] });
                 };
                 let jwk = serde_json::from_value(key.public_jwk()).map_err(|err| {

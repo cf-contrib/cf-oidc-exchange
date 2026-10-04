@@ -23,9 +23,15 @@ using Versioning;
 @service(#{ title: "cf-oidc-exchange" })
 @server("https://cf-oidc-exchange.example.com")
 @tagMetadata(
-  "ExchangeService",
+  "TokenService",
   #{
-    description: "Token exchange and revocation, and the metadata to verify the broker's own tokens.",
+    description: "Token exchange and revocation: the OAuth token and revocation endpoints.",
+  }
+)
+@tagMetadata(
+  "DiscoveryService",
+  #{
+    description: "The broker's metadata and keys, public, for the services that verify its tokens.",
   }
 )
 @versioned(Versions)
@@ -237,8 +243,8 @@ model TokenIssued {
   @body body: TokenExchangeResponse;
 }
 
-@tag("ExchangeService")
-interface ExchangeService {
+@tag("TokenService")
+interface TokenService {
   /**
    * The subject token is in the body, not an `Authorization` header. Which profile
    * applies follows the policy: a named `profile` must match, otherwise exactly one
@@ -271,7 +277,10 @@ interface ExchangeService {
   ):
     | Empty<"Revoked, already gone, never valid, or not the broker's. No body.">
     | Errors;
+}
 
+@tag("DiscoveryService")
+interface DiscoveryService {
   /** Tokens come from exchange only, so there's no authorization endpoint. */
   @summary("The broker's Authorization Server Metadata (RFC 8414), with its keys and endpoints.")
   @operationId("metadata")

@@ -36,7 +36,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         tracing_enabled: false,
         server: server.then(|| ServerSection {
             framework: "axum".to_string(),
-            operations: vec!["tag:ExchangeService".to_string()],
+            operations: vec![
+                "tag:TokenService".to_string(),
+                "tag:DiscoveryService".to_string(),
+            ],
             prune_models: false,
             validation: ServerValidationSection {
                 max_body_bytes: MAX_BODY_BYTES,

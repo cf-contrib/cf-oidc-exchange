@@ -476,8 +476,8 @@ The crate is laid out as cf-nix-cache's Worker is:
 |---|---|
 | `src/lib.rs` | The start, fetch and scheduled events: the JSON logger, the configuration, then the SDK's router over it, with the auth layer, the health endpoints and `OAuthResponseLayer`. |
 | `src/service/config.rs` | The bindings, read in `Config::from_env` only, and the policy's format: providers, profiles, claim sets, bucket prefixes, and the guardrails parsing checks. |
-| `src/service/layer.rs` | Exchange auth, as a tower layer over [`cf-oidc-core`](../cf-oidc-core): the subject token's provider by `iss`, RS256 against the issuer's keys with WebCrypto, the standard claims and the provider's claim sets. And `OAuthResponseLayer`, OAuth's rules for every response: the generated validation's refusals as `invalid_request`, and `Cache-Control`. |
-| `src/service/handler.rs` | The generated API's implementation: the exchange (profiles, Cloudflare tokens and R2 credentials through [cloudflare-rs](https://github.com/cf-contrib/cloudflare-rs), the broker's own tokens), revocation, the RFC 8414 and OpenID Connect Discovery metadata, the keys, and the cleanup the cron runs. |
+| `src/service/layer.rs` | Exchange auth, as a tower layer over [`cf-oidc-core`](../cf-oidc-core): the subject token's provider by `iss`, RS256 against the issuer's keys with WebCrypto, the standard claims and the provider's claim sets. And `OAuthResponseLayer`, OAuth's rules for every response: the generated validation's refusals as `invalid_request`, and `Cache-Control: no-store`; `cache_publicly`, the discovery endpoints' `public, max-age=300`. |
+| `src/service/handler.rs` | The generated API's implementation, a handler per trait. `TokenServiceHandler`: the exchange (profiles, Cloudflare tokens and R2 credentials through [cloudflare-rs](https://github.com/cf-contrib/cloudflare-rs), the broker's own tokens), revocation, and the cleanup the cron runs. `DiscoveryServiceHandler`: the RFC 8414 and OpenID Connect Discovery metadata, and the keys. |
 
 ## Development
 

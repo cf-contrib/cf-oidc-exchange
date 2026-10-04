@@ -12,9 +12,10 @@
 //! - **Types**: [`v1::TokenExchangeRequest`] and [`v1::TokenExchangeResponse`],
 //!   [`v1::TokenRevocationRequest`], the authorization server metadata and JWKS, and
 //!   [`v1::Error`], the body of every error, with [`v1::Error::new`].
-//! - **Server** (`server` feature): `ExchangeServiceApi`, a response enum per
-//!   operation, and `exchange_service_api_router`, an axum router over it that
-//!   checks requests against the spec before they reach a handler.
+//! - **Server** (`server` feature): a trait per tag, `TokenServiceApi` and
+//!   `DiscoveryServiceApi`, a response enum per operation, and a router per
+//!   trait, `token_service_api_router` and `discovery_service_api_router`,
+//!   which check requests against the spec before they reach a handler.
 //! - **Client** (`client` feature): `HttpClient`, a method per operation.
 //! - **Health**: the endpoints a server answers beside the API,
 //!   [`v1::HEALTH_LIVE_PATH`] and [`v1::HEALTH_READY_PATH`]; `HealthHandler`,
@@ -28,9 +29,8 @@
 //! `exchangev1.yaml` beside it. `build.rs` runs
 //! [openapi-to-rust](https://github.com/gpu-cli/openapi-to-rust) over the
 //! document into `OUT_DIR`, so none of the Rust is checked in or edited by
-//! hand. What is
-//! hand-written is in `service/`, mounted into `v1` beside it: the models'
-//! companions in `service/model.rs`, the health endpoints in
+//! hand. What is hand-written is in `service/`, mounted into `v1` beside it:
+//! the models' companions in `service/model.rs`, the health endpoints in
 //! `service/handler.rs`.
 
 mod service;

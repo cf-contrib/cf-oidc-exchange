@@ -12,8 +12,10 @@ info:
     Connect Discovery for those that only read that).
   version: v1
 tags:
-  - name: ExchangeService
-    description: Token exchange and revocation, and the metadata to verify the broker's own tokens.
+  - name: DiscoveryService
+    description: The broker's metadata and keys, public, for the services that verify its tokens.
+  - name: TokenService
+    description: 'Token exchange and revocation: the OAuth token and revocation endpoints.'
 paths:
   /.well-known/jwks:
     get:
@@ -34,7 +36,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
       tags:
-        - ExchangeService
+        - DiscoveryService
   /.well-known/oauth-authorization-server:
     get:
       operationId: metadata
@@ -55,7 +57,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
       tags:
-        - ExchangeService
+        - DiscoveryService
   /.well-known/openid-configuration:
     get:
       operationId: openidConfiguration
@@ -81,7 +83,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
       tags:
-        - ExchangeService
+        - DiscoveryService
   /oauth/revoke:
     post:
       operationId: revokeToken
@@ -113,7 +115,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
       tags:
-        - ExchangeService
+        - TokenService
       requestBody:
         required: true
         content:
@@ -165,7 +167,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
       tags:
-        - ExchangeService
+        - TokenService
       requestBody:
         required: true
         content:

@@ -24,7 +24,7 @@ CI compiles it again and fails if the document differs from the one checked in.
 | Feature | |
 |---|---|
 | (always) | the types: requests, responses, the authorization server metadata (RFC 8414) and OpenID Provider metadata, the JWKS, OAuth errors |
-| `server` | `ExchangeServiceApi`, a response enum per operation, and `exchange_service_api_router`, an axum router that checks each request against the spec before it reaches a handler. `HealthHandler`, which answers the health endpoints beside it, `/health/live` and `/health/ready`. |
+| `server` | A trait per tag, `TokenServiceApi` (the exchange and revocation) and `DiscoveryServiceApi` (the metadata and keys), a response enum per operation, and an axum router per trait, `token_service_api_router` and `discovery_service_api_router`, that checks each request against the spec before it reaches a handler. `HealthHandler`, which answers the health endpoints beside it, `/health/live` and `/health/ready`. |
 | `client` | `HttpClient`, a method per operation, and `HealthClient`, which asks the health endpoints. |
 
 Bodies are form-encoded (`application/x-www-form-urlencoded`), as RFC 8693 and
