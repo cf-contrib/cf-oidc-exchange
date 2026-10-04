@@ -31,9 +31,8 @@
         devShells.default = pkgs.mkShell {
           name = "cf-oidc-exchange";
           packages = [
-            # The TypeScript broker and the action, until the Rust Worker replaces the broker.
+            # The action, and the TypeSpec the Worker's API is compiled from.
             pkgs.nodejs_24
-            pkgs.pnpm
             # The Rust Worker.
             pkgs.pkg-config
             pkgs.worker-build

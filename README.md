@@ -91,10 +91,10 @@ If a stored secret is acceptable to you, it's less to run.
 Everything runs inside the dev shell: `nix develop`, or the Dev Container.
 
 ```sh
-pnpm install && pnpm lint && pnpm typecheck && pnpm test   # the action
-cargo test                                                  # the crates' unit tests
-crates/cf-oidc-exchange-api/tests/run.sh                    # the broker end to end, under wrangler dev
-(cd deployment/terraform && tofu test)                      # the Terraform module
+(cd action && npm ci && npm run lint && npm run typecheck && npm test)   # the action
+cargo test                                                               # the crates' unit tests
+crates/cf-oidc-exchange-api/tests/run.sh                                 # the broker end to end, under wrangler dev
+(cd deployment/terraform && tofu test)                                   # the Terraform module
 ```
 
 Releases are cut by release-please from Conventional Commits. Each release is tagged `vX.Y.Z` and attaches the broker's `index.js`, `index_bg.wasm.base64` and their `SHA256SUMS`. Pin the action to a release tag or its commit SHA: before 1.0 there is no floating major tag, because minor releases may break.

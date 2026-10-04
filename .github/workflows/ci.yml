@@ -18,8 +18,6 @@ jobs:
         uses: actions/checkout@v7
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v23
-      - name: Install
-        run: nix develop --command pnpm install --frozen-lockfile
       # The OpenAPI document is compiled from TypeSpec and checked in, so it
       # must be what the .tsp compiles to.
       - name: Check OpenAPI Document
@@ -28,12 +26,18 @@ jobs:
           nix develop --command npm ci
           nix develop --command npm run generate
           git diff --exit-code .
-      - name: Lint
-        run: nix develop --command pnpm lint
-      - name: Typecheck
-        run: nix develop --command pnpm typecheck
-      - name: Test
-        run: nix develop --command pnpm test
+      - name: Install Action
+        working-directory: action
+        run: nix develop --command npm ci
+      - name: Lint Action
+        working-directory: action
+        run: nix develop --command npm run lint
+      - name: Typecheck Action
+        working-directory: action
+        run: nix develop --command npm run typecheck
+      - name: Test Action
+        working-directory: action
+        run: nix develop --command npm test
       - name: Check Rust Formatting
         run: nix develop --command cargo fmt --all --check
       - name: Test Rust
