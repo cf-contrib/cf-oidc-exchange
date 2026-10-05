@@ -281,7 +281,7 @@ dependencies = [
  "http-body-util",
  "jsonschema 0.58.3",
  "mime",
- "openapi-to-rust 0.19.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "openapi-to-rust 0.19.0",
  "reqwest",
  "reqwest-middleware",
  "serde",
@@ -332,14 +332,14 @@ dependencies = [
 [[package]]
 name = "cloudflare"
 version = "0.1.0"
-source = "git+https://github.com/cf-contrib/cloudflare-rs?rev=96a4710ae4cbfa18c98c5e90044cacae7fc3ab19#96a4710ae4cbfa18c98c5e90044cacae7fc3ab19"
+source = "git+https://github.com/cf-contrib/cloudflare-rs?rev=8302809e0b8e07c97a9cacf90d6825a0ac96bbaa#8302809e0b8e07c97a9cacf90d6825a0ac96bbaa"
 dependencies = [
  "base64",
  "bytes",
  "chrono",
  "futures-timer",
  "futures-util",
- "openapi-to-rust 0.19.0 (git+https://github.com/gpu-cli/openapi-to-rust?rev=977d0873462c98f13043eff2a2ac4eb11c2e5ceb)",
+ "openapi-to-rust 0.20.0",
  "reqwest",
  "reqwest-middleware",
  "serde",
@@ -1409,8 +1409,9 @@ dependencies = [
 
 [[package]]
 name = "openapi-to-rust"
-version = "0.19.0"
-source = "git+https://github.com/gpu-cli/openapi-to-rust?rev=977d0873462c98f13043eff2a2ac4eb11c2e5ceb#977d0873462c98f13043eff2a2ac4eb11c2e5ceb"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc639fc6a3ae9d3b6c9719e0b069904f9c60464f008c93ff7bf4ce699de4b67d"
 dependencies = [
  "heck",
  "jsonschema 0.49.9",
