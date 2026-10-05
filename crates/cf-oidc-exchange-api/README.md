@@ -65,7 +65,7 @@ A job in repo `200000002`, on `main`, in the `prod` environment, gets a 15-minut
 | `CF_OIDC_EXCHANGE_API_ACCOUNT_ID` | plain text | yes | Account the Cloudflare token belongs to and tokens are minted in. |
 | `CF_OIDC_EXCHANGE_API_POLICY` | plain text | yes | The [policy](#policy), as JSON. A Worker variable holds at most 5 KB. |
 | `CF_OIDC_EXCHANGE_API_CLOUDFLARE_TOKEN` | Secrets Store secret | yes | Account-owned token with Account API Tokens Write, plus R2 permissions covering what profiles' buckets delegate. Read on every request, so rotating the secret takes effect without a redeploy. Anything else, such as a plain `wrangler secret`, is refused with `500`. |
-| `CF_OIDC_EXCHANGE_API_SIGNING_KEY` | Secrets Store secret | for profiles with an `audience` | RSA private key (at least 2048 bits), as a PKCS#8 PEM, the broker signs [its own tokens](#tokens-for-other-services) with. Without it the broker issues none, publishes no keys, and those profiles fail closed with `500`. |
+| `CF_OIDC_EXCHANGE_API_SIGNING_KEY` | Secrets Store secret | for profiles with an `audience` | RSA private key (at least 2048 bits), as a PKCS#8 PEM, the broker signs [its own tokens](#tokens-for-other-services) with. Without it the broker issues none, publishes no keys, and those profiles fail closed with `500`. Bound as anything else, it's refused with `500`, as the Cloudflare token is. |
 
 The hourly cron (`17 * * * *` in the examples) deletes expired `cf-oidc:*` tokens.
 
@@ -74,8 +74,8 @@ and `defaults` variables and binds it, so the policy changes with a deploy and
 rolls back with it. Under `wrangler dev`, it's
 the integration tests' policy in `wrangler.toml`.
 
-The bindings are read on every request. An unset account, an invalid policy or a
-Cloudflare token outside Secrets Store is a `500` on every route, the health
+The bindings are read on every request. An unset account, an invalid policy, or a
+Cloudflare token or signing key outside Secrets Store is a `500` on every route, the health
 endpoints' too, with the first problem in a `misconfigured` log line, such as
 `{"level":"ERROR","event":"misconfigured","message":"CF_OIDC_EXCHANGE_API_POLICY: profiles[1].claims must contain at least one claim set"}`.
 
@@ -83,7 +83,7 @@ endpoints' too, with the first problem in a `misconfigured` log line, such as
 
 ```yaml
 version: 3
-issuer: https://cf-oidc-exchange.example.com   # REQUIRED: the broker's URL, as its own tokens name it
+issuer: https://cf-oidc-exchange.example.com   # REQUIRED: the broker's URL, as its own tokens name it: an origin, no trailing /
 
 providers:
   - name: github                             # GitHub Actions
@@ -174,7 +174,7 @@ A profile has a `token`, a `bucket`, or both, for callers with a token from its 
 
 To switch a profile off, for example during an incident, set `enabled: false`. It stays in the policy but never matches, and a request naming it is refused (`invalid_request`).
 
-The broker checks the policy on every request. If it's invalid, the broker fails closed and every request gets `500`.
+The broker checks the policy on every request. If it's invalid, the broker fails closed and every request gets `500`. Unknown fields are refused too, so a misspelt one is never silently ignored.
 
 ### Providers
 
@@ -247,7 +247,7 @@ curl -H "Authorization: Bearer <token>" \
 | One zone | `com.cloudflare.api.account.zone.<zone_id>: "*"` |
 | Every zone in the account | `com.cloudflare.api.account.<account_id>: { com.cloudflare.api.account.zone.*: "*" }` |
 
-Keys must start with `com.cloudflare.`, and account keys must name `CF_OIDC_EXCHANGE_API_ACCOUNT_ID`. Add a comment with the zone's name next to each zone ID so reviewers can tell them apart. With the Terraform module, write `"com.cloudflare.api.account.${var.account_id}"`.
+Keys must start with `com.cloudflare.`, and account keys must name `CF_OIDC_EXCHANGE_API_ACCOUNT_ID`. A policy's `resources` are all `"*"` values or all nested maps, as Cloudflare takes them. Add a comment with the zone's name next to each zone ID so reviewers can tell them apart. With the Terraform module, write `"com.cloudflare.api.account.${var.account_id}"`.
 
 ### Buckets
 
@@ -293,10 +293,10 @@ A profile with `audience: <service URL>` gives the caller a token the broker sig
 
 The caller asks for it with [`audience`](#token-exchange) set to the service's URL, and gets a JWT access token the broker signed, as RFC 9068 has it: `typ: at+jwt`, so a service can tell it from any other JWT, and `alg: RS256`, which verifiers support by default.
 
-- `iss` is the broker's URL (the policy's `issuer`), `aud` the service, `sub` the caller's `sub` from its issuer, and `client_id` the provider's name: the caller doesn't authenticate as a client, so the provider that vouched for it stands in.
-- `provider` and `profile` name where the caller came from and what allowed it, and `jti` is unique.
+- `iss` is the broker's URL (the policy's `issuer`), `aud` the service, `sub` the caller's `sub` from its issuer (`<provider>:unknown` if its token has none), and `client_id` the provider's name: the caller doesn't authenticate as a client, so the provider that vouched for it stands in.
+- `provider` and `profile` name where the caller came from and what allowed it, `jti` is unique, and `iat`, `nbf` and `exp` are when it was issued, valid from and until.
 - Verified claims are copied under their issuer's names, so a service can match on them: every claim the profile's or its provider's claim sets name. Nothing else, so an issuer's other claims (such as GitLab's `user_email`) stay behind.
-- It lasts the profile's `ttl`, but never past the caller's OIDC token, which lasts minutes. Exchange again for a fresh one: there are no refresh tokens.
+- It lasts the profile's `ttl`, but never past the caller's OIDC token, which lasts minutes. Exchange again for a fresh one: there are no refresh tokens. A subject token already past its `exp`, though accepted within the clock tolerance, gets nothing (`invalid_request`, `the subject token has expired`).
 
 Services find the public key at [`/.well-known/jwks`](#http-api), or through the broker's metadata: RFC 8414's at [`/.well-known/oauth-authorization-server`](#http-api), or OpenID Connect Discovery's at [`/.well-known/openid-configuration`](#http-api) for services that only read that, such as AWS IAM, Google Cloud Workload Identity Federation and Vault. They should check `typ` (`at+jwt`), `iss`, `aud`, `exp` and the `RS256` algorithm, as RFC 9068 §4 says. The broker isn't a full OpenID Provider: tokens come from exchange only, so, as for GitHub's and Kubernetes' issuers, its discovery document has no authorization endpoint. With cf-oidc-core, a service names the broker as a provider with `typ` `at+jwt`.
 
@@ -312,9 +312,10 @@ Its `kid` is the public key's thumbprint, so replacing the secret rotates the ke
 
 ### TTL and names
 
-- Durations look like `90s`, `15m`, `1h`, `1h30m`.
+- Durations look like `90s`, `15m`, `1h`, `1h30m`: each unit once, largest first.
 - `ttl` and `max_ttl` go on the profile, and apply to its token and bucket alike.
-- A requested `ttl` above the profile's `max_ttl` is clamped. Below `1m`, or unparseable, is a `400`.
+- A requested `ttl` above the profile's `max_ttl` is clamped. Below `1m`, or unparseable, is a `400`. In the policy, a `ttl` below `1m` is refused when it loads.
+- Provider and profile names are 1–64 characters of `A-Z`, `a-z`, `0-9`, `_`, `.` and `-`, starting with a letter or digit, and unique.
 - Minted tokens are named `cf-oidc:<provider>:<sub>`, at most 120 characters.
 
 ### Guardrails
@@ -323,7 +324,7 @@ These are enforced when the policy loads, so an unsafe policy never serves a req
 
 1. **Every provider is pinned.** A provider must list at least one claim set, and a token must match one of them whatever profile it asks for. Pin the tenant there for issuers that give tokens to anyone's projects (see [Providers](#providers)).
 2. **Patterns stay narrow.** ID claims can't use `*`, and other claims only as a single trailing `*` after a prefix, so a pattern can't match everything (`*`) or anything ending in a value (`*main`).
-3. **No token-management permissions.** Granting any permission group matching `API Tokens` is rejected, so a job can't turn its short-lived token into a long-lived one.
+3. **No token-management permissions.** Granting (`effect: allow`) any permission group whose name contains `API Tokens`, in any case, is rejected, so a job can't turn its short-lived token into a long-lived one. A `deny` may name one.
 4. **TTLs are capped.** `max_ttl` is at most 24h, and `ttl` can't exceed it.
 5. **Audiences are kept apart.** A request only matches profiles for its `audience`. A profile for another service can't hand out Cloudflare credentials, and its audience must be a bare origin other than the broker's own.
 
@@ -333,11 +334,13 @@ These are enforced when the policy loads, so an unsafe policy never serves a req
 |---|---|---|---|
 | `POST` | `/oauth/token` | `subject_token` in the body | [Token exchange](#token-exchange) (RFC 8693) of an OIDC token. What the action uses. |
 | `POST` | `/oauth/revoke` | `token` in the body | [Revoke](#revocation) (RFC 7009) a token the broker minted. What the action's post step uses. |
-| `GET` | `/.well-known/oauth-authorization-server` | public | The broker's Authorization Server Metadata (RFC 8414): its issuer, key and endpoint URLs, for services that verify [its tokens](#tokens-for-other-services). |
+| `GET` | `/.well-known/oauth-authorization-server` | public | The broker's Authorization Server Metadata (RFC 8414): its issuer, key and endpoint URLs, for services that verify [its tokens](#tokens-for-other-services). Its endpoints' auth methods are `none`: callers don't authenticate as clients. |
 | `GET` | `/.well-known/openid-configuration` | public | The same issuer and keys as OpenID Provider Metadata (OpenID Connect Discovery 1.0), for services that only read that. |
 | `GET` | `/.well-known/jwks` | public | The public key the broker signs its own tokens with. Empty without `CF_OIDC_EXCHANGE_API_SIGNING_KEY`. |
 | `GET` | `/health/live` | public | `200` whenever the Worker's bindings are valid. |
 | `GET` | `/health/ready` | public | `200` whenever the Worker's bindings are valid. It doesn't read the secrets: a route that needs them fails closed with `500`, with why in Workers Logs. |
+
+Bodies are form-encoded and at most 16 KiB; anything else, such as a JSON body, is `400` (`invalid_request`). Every response is `Cache-Control: no-store`, except the discovery endpoints' `200`s, which are `public, max-age=300`.
 
 ### Token exchange
 
@@ -379,13 +382,15 @@ The response has the standard fields plus the broker's own:
 }
 ```
 
+`requested_token_type` doesn't choose what's issued: the profile does. It only refuses a type the audience can't have (`invalid_target`), so a profile with a `token` and a `bucket` answers `access_token` even if `r2-credentials` was asked for.
+
 `bucket` is there when the profile has one. A profile with only a bucket has no bearer token, so it returns no `access_token` or `token_id`, with `issued_token_type` `urn:cf-oidc-exchange:params:oauth:token-type:r2-credentials` and `token_type` `N_A`. For a service's audience, `access_token` is the broker's JWT access token, `issued_token_type` is `urn:ietf:params:oauth:token-type:access_token` (or `…:jwt`, if that's what `requested_token_type` asked for), and there's no `token_id`, `account_id` or `bucket`.
 
 Errors are the same as on every route.
 
 ### Revocation
 
-`POST /oauth/revoke` is an [RFC 7009](https://www.rfc-editor.org/rfc/rfc7009) revocation, form-encoded, with the token in `token` (`token_type_hint` is ignored). Holding the token is the proof. It answers `200` with no body whether the token was revoked, was already gone, was never valid, or isn't one the broker minted (one not named `cf-oidc:*`, including the Cloudflare token), which it never deletes: to the broker that's an invalid token, which RFC 7009 answers with `200` too. The audit log says which (`token.revoke`, `reason: not_minted`).
+`POST /oauth/revoke` is an [RFC 7009](https://www.rfc-editor.org/rfc/rfc7009) revocation, form-encoded, with the token in `token` (`token_type_hint`, if sent, must be `access_token`, and is otherwise ignored). Holding the token is the proof. It answers `200` with no body whether the token was revoked, was already gone, was never valid, or isn't one the broker minted (one not named `cf-oidc:*`, including the Cloudflare token), which it never deletes: to the broker that's an invalid token, which RFC 7009 answers with `200` too. The audit log says which (`token.revoke`, `reason: not_minted`).
 
 ```sh
 curl -sS https://cf-oidc-exchange.example.com/oauth/revoke -d token="$CLOUDFLARE_API_TOKEN"
@@ -399,7 +404,7 @@ curl -sS https://cf-oidc-exchange.example.com/oauth/revoke -d token="$CLOUDFLARE
 - `500 server_error`: the broker is misconfigured or failed
 - `503 temporarily_unavailable`: Cloudflare or the subject token's issuer failed
 
-For the caller's own mistakes (400) the description says what was wrong, for example `no profile matches the token` or `profile workers-deploy isn't for provider gitlab`. That tells a caller with a valid token which profile names exist. For the broker's faults (500, 503) the description is generic, and the logs say why.
+For the caller's own mistakes (400) the description says what was wrong, for example `no profile matches the token`, `profiles a, b all match the token: name one`, `unknown profile x`, `profile workers-deploy isn't for provider gitlab`, `profile x is disabled` or `profile x doesn't match the token`. That tells a caller with a valid token which profile names exist. For the broker's faults (500, 503) the description is generic, and the logs say why.
 
 **Contract:** [`exchangev1.tsp`](../cf-oidc-exchange-sdk/openapi/oidc/exchange/v1/exchangev1.tsp), in TypeSpec, compiled to the OpenAPI document [`exchangev1.yaml`](../cf-oidc-exchange-sdk/openapi/oidc/exchange/v1/exchangev1.yaml). The Worker's types, server and router are generated from it, and requests that don't fit it are refused (`400`) before any handler runs. The action's [`api.ts`](../../action/src/api.ts) mirrors it.
 
@@ -424,7 +429,7 @@ For the caller's own mistakes (400) the description says what was wrong, for exa
 
 ### Audit log
 
-The broker logs with [`tracing`](https://docs.rs/tracing), as JSON lines that Workers Logs indexes by field. Every mint, issue, denial and revoke is one line, with its `event`, the caller's `provider`, their token's `sub`, and in `claims` the claims the policy's claim sets for them name. Token values, R2 secrets and JWTs are never logged:
+The broker logs with [`tracing`](https://docs.rs/tracing), as JSON lines that Workers Logs indexes by field. Every mint, issue and denial is one line, with its `event` and, once the token is verified, the caller's `provider`, their token's `sub`, and in `claims` the claims the policy's claim sets for them name. Token values, R2 secrets and JWTs are never logged:
 
 ```json
 {"level":"INFO","event":"token.mint","provider":"github","profile":"workers-deploy","sub":"repo:example-org/api:environment:prod","claims":"{\"environment\":\"prod\",\"ref\":\"refs/heads/main\",\"repository\":\"example-org/api\",\"repository_owner_id\":\"100000001\"}","token_id":"<token-id>","expires_at":1790961140}
@@ -454,10 +459,20 @@ Denials are `token.deny`, a warning, with the response's `error`, and its `error
 - **The policy didn't allow it** (`invalid_request` too): the token matches none of its provider's claim sets, no profile matches, several do, the named one doesn't, a claim can't fill a bucket prefix.
 - **Configuration or upstream faults** (`server_error`, `temporarily_unavailable`): a secret that can't be read, an unknown permission name, an issuer's keys, Cloudflare failing.
 
+The other events:
+
+| `event` | Fields | |
+|---|---|---|
+| `token.revoke` | `token_id`, or `reason` | A revocation: the token deleted, or `already_gone`, `not_minted` (the token isn't the broker's), `discarded` (deleted because the profile's R2 credentials failed) or `discard_failed` |
+| `token.cleanup` | `token_id`, `name`, `expires_at` | The cron deleted an expired token |
+| `cleanup.done` | `deleted` | The cron's run, and how many it deleted |
+| `cleanup.failed` | `error`, `message` | The cron's run failed |
+| `misconfigured` | `message` | The bindings or the policy are invalid: the first problem |
+
 ## Limitations
 
 - **One account per broker.** Tokens are minted in `CF_OIDC_EXCHANGE_API_ACCOUNT_ID` only. Deploy one broker per account.
-- **RS256 only, one provider per issuer.** Issuers that sign with another algorithm (such as ES256) aren't supported yet. To serve several GitHub orgs, list their IDs in the provider's `repository_owner_id`.
+- **RS256 only, one provider per issuer.** Issuers that sign with another algorithm (such as ES256) aren't supported yet. To serve several GitHub orgs, give the provider a claim set per org: `claims: [{ repository_owner_id: "100000001" }, { repository_owner_id: "100000002" }]`.
 - **OIDC tokens only.** People need an identity provider that issues them one, such as [Cloudflare Access](#people). Rules on a person's role in a GitHub repo can't be expressed: their tokens don't carry it.
 - **The tenant pin is yours to get right.** The broker requires every provider to have claim sets, but knows no issuer's tenant claim by name.
 - **One signing key at a time.** Rotating it can't publish the old and new keys side by side, so a token signed just before the rotation fails at a service that has already refetched the JWKS. They're short-lived, and the caller can exchange again.
@@ -474,7 +489,7 @@ The crate is laid out as cf-nix-cache's Worker is:
 
 | | |
 |---|---|
-| `src/lib.rs` | The start, fetch and scheduled events: the JSON logger, the configuration, then the SDK's router over it, with the auth layer, the health endpoints and `OAuthResponseLayer`. |
+| `src/lib.rs` | The start, fetch and scheduled events: the JSON logger, the configuration, then the SDK's two routers over it, the token endpoints under the auth layer and the discovery endpoints under `cache_publicly`, and the health endpoints, all under `OAuthResponseLayer`. |
 | `src/service/config.rs` | The bindings, read in `Config::from_env` only, and the policy's format: providers, profiles, claim sets, bucket prefixes, and the guardrails parsing checks. |
 | `src/service/layer.rs` | Exchange auth, as a tower layer over [`cf-oidc-core`](../cf-oidc-core): the subject token's provider by `iss`, RS256 against the issuer's keys with WebCrypto, the standard claims and the provider's claim sets. And `OAuthResponseLayer`, OAuth's rules for every response: the generated validation's refusals as `invalid_request`, and `Cache-Control: no-store`; `cache_publicly`, the discovery endpoints' `public, max-age=300`. |
 | `src/service/handler.rs` | The generated API's implementation, a handler per trait. `TokenServiceHandler`: the exchange (profiles, Cloudflare tokens and R2 credentials through [cloudflare-rs](https://github.com/cf-contrib/cloudflare-rs), the broker's own tokens), revocation, and the cleanup the cron runs. `DiscoveryServiceHandler`: the RFC 8414 and OpenID Connect Discovery metadata, and the keys. |

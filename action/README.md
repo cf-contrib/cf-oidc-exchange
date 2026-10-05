@@ -40,7 +40,7 @@ Pin a release. Before 1.0 there's no floating `v0` tag, because a minor release 
 For the strictest setup, pin the commit SHA the tag points to, and let Dependabot's `github-actions` updates keep it current:
 
 ```yaml
-- uses: cf-contrib/cf-oidc-exchange@<commit-sha> # v0.1.0
+- uses: cf-contrib/cf-oidc-exchange@<commit-sha> # vX.Y.Z
 ```
 
 A floating `v1` tag will follow each release from 1.0 on.
@@ -56,7 +56,7 @@ A floating `v1` tag will follow each release from 1.0 on.
 ## What it does
 
 - **Main step:**
-  - requests an OIDC token for the broker's origin, retrying brief runner failures;
+  - requests an OIDC token for the broker's origin, trying up to 3 times on network errors and `5xx`. Every request, this and the broker's, times out after 30 seconds;
   - asks the broker for a Cloudflare token (not retried, because minting isn't idempotent);
   - masks the token and the OIDC token;
   - exports `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` for the rest of the job. For a profile with only a `bucket` there's no token, and only `CLOUDFLARE_ACCOUNT_ID` is exported;
@@ -66,7 +66,11 @@ A floating `v1` tag will follow each release from 1.0 on.
     cf-oidc: minted token 3f2a… (profile workers-deploy, expires 2026-09-28T12:15:00Z)
     cf-oidc: issued R2 credentials for bucket org-terraform-state under 100000001/200000003/ (profile terraform-state, expires 2026-09-28T12:15:00Z)
     ```
-- **Post step:** revokes the token, if there is one. It runs even when the job fails. A failed revoke is a warning, not an error: the token expires on its own and the broker's cron deletes it. R2 credentials can't be revoked; the post step logs when they expire.
+- **Post step:** revokes the token, if there is one. It runs even when the job fails. A failed revoke is a warning, not an error: the token expires on its own and the broker's cron deletes it. R2 credentials can't be revoked; the post step logs when they expire:
+  ```
+  cf-oidc: R2 temporary credentials can't be revoked; they expire at 2026-09-28T12:15:00Z
+  cf-oidc: revoked token 3f2a…
+  ```
 
 None of this can be switched off: what's exported is decided by the profile. Exported values are also in the `env` context, so actions that take credentials as inputs can use `${{ env.CLOUDFLARE_API_TOKEN }}`.
 
@@ -148,10 +152,13 @@ jobs:
 | Error | Cause |
 |---|---|
 | `OIDC unavailable: add permissions: id-token: write to the job` | The job can't request an OIDC token. Add the permission. Fork PRs on `pull_request` never get it. |
-| `broker returned 400 (invalid_request: …)` | The broker rejected the OIDC token, usually because `url` doesn't match the GitHub provider's `audience` in the policy; or no profile allows this workflow, or the named `profile` doesn't match. The description says which. |
-| `broker returned 503 (temporarily_unavailable: …)` | The Cloudflare API or the subject token's issuer failed; the broker's log (`token.deny`) says which. For a profile with a `bucket`, it's usually a Cloudflare token without enough R2 permissions on it. |
-| `broker returned 500 (server_error: …)` | The broker's policy or bindings are invalid. The broker's logs say why. |
-| `url must use https` | Plain `http` is only accepted for `localhost` and `127.0.0.1`. |
+| `OIDC token request failed: <status>` | The runner's token endpoint refused the request, or still failed after 3 tries. |
+| `cf-oidc broker returned 400 (invalid_request: …)` | The broker rejected the OIDC token, usually because `url` doesn't match the GitHub provider's `audience` in the policy; or no profile allows this workflow, or the named `profile` doesn't match. The description says which. |
+| `cf-oidc broker returned 503 (temporarily_unavailable: …)` | The Cloudflare API or the subject token's issuer failed; the broker's log (`token.deny`) says which. For a profile with a `bucket`, it's usually a Cloudflare token without enough R2 permissions on it. |
+| `cf-oidc broker returned 500 (server_error: …)` | The broker's policy or bindings are invalid. The broker's logs say why. |
+| `cf-oidc broker returned 404: the broker doesn't serve /oauth/token…` | `url` isn't the broker, or the broker is from an older release than the action. Deploy the broker from the action's release. |
+| `cf-oidc broker returned an invalid response: missing …` | The broker answered `200` without what the action needs: a broker from another release, or something else at `url`. |
+| `url must use https` | Plain `http` is only accepted for `localhost`, `127.0.0.1` and `[::1]`. |
 | `AccessDenied` from S3 on some keys | The credentials only cover the bucket's prefixes: keep every key under `$CLOUDFLARE_R2_PREFIX`. |
 
 ## Limitations
