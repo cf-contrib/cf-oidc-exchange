@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.12.0](https://github.com/cf-contrib/cf-oidc-exchange/compare/v0.11.0...v0.12.0) (2026-10-05)
+
+
+### ⚠ BREAKING CHANGES
+
+* the action no longer exports AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, AWS_SECURITY_TOKEN, AWS_ENDPOINT_URL_S3, AWS_REGION or AWS_DEFAULT_REGION. A step that runs S3 tools sets them from CLOUDFLARE_R2_* itself.
+
+### Features
+
+* export R2 credentials as CLOUDFLARE_R2_*, not AWS_* ([a9cdd33](https://github.com/cf-contrib/cf-oidc-exchange/commit/a9cdd335d4d4c0209a0cdd51ecbfc16f061a54f1)), closes [#74](https://github.com/cf-contrib/cf-oidc-exchange/issues/74)
+
 ## [0.11.0](https://github.com/cf-contrib/cf-oidc-exchange/compare/v0.10.0...v0.11.0) (2026-10-04)
 
 
