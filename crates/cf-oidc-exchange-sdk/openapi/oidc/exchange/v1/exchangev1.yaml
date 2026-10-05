@@ -2,8 +2,9 @@ openapi: 3.1.0
 info:
   title: cf-oidc-exchange
   description: |-
-    Bodies are form-encoded, and errors are OAuth errors (RFC 6749 §5.2), as RFC 8693 and
-    RFC 7009 have it.
+    Bodies are form-encoded, at most 16 KiB, and errors are OAuth errors (RFC 6749 §5.2),
+    as RFC 8693 and RFC 7009 have it. Every response is `Cache-Control: no-store`, but
+    the discovery endpoints' `200`s.
 
     Exchanges an OIDC token for short-lived Cloudflare credentials, or for an access token
     the broker signs for another service (RFC 8693 token exchange at `POST /oauth/token`;
@@ -97,7 +98,9 @@ paths:
         '200':
           description: Revoked, already gone, never valid, or not the broker's. No body.
         '400':
-          description: "The caller's mistake: the description says what was wrong."
+          description: |-
+            The caller's mistake: the description says what was wrong. A request that doesn't fit
+            this contract, such as a JSON body, is `invalid_request` too.
           content:
             application/json:
               schema:
@@ -149,7 +152,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/TokenExchangeResponse'
         '400':
-          description: "The caller's mistake: the description says what was wrong."
+          description: |-
+            The caller's mistake: the description says what was wrong. A request that doesn't fit
+            this contract, such as a JSON body, is `invalid_request` too.
           content:
             application/json:
               schema:
@@ -207,14 +212,17 @@ components:
           type: array
           items:
             type: string
+          description: 'Token exchange only: `urn:ietf:params:oauth:grant-type:token-exchange`.'
         token_endpoint_auth_methods_supported:
           type: array
           items:
             type: string
+          description: "`none`: callers don't authenticate as clients; the subject token is the proof."
         revocation_endpoint_auth_methods_supported:
           type: array
           items:
             type: string
+          description: '`none`: holding the token is the proof.'
       description: Authorization Server Metadata (RFC 8414 §2).
     BucketCredentials:
       type: object
@@ -276,6 +284,10 @@ components:
         - urn:ietf:params:oauth:token-type:access_token
         - urn:cf-oidc-exchange:params:oauth:token-type:r2-credentials
         - urn:ietf:params:oauth:token-type:jwt
+      description: |-
+        What the exchange issues: a Cloudflare API token (`access_token`), R2 credentials
+        alone (`r2-credentials`), or the broker's own JWT access token for a service
+        (`access_token`, or `jwt` if asked for by that name).
     Jwks:
       type: object
       required:
@@ -311,6 +323,7 @@ components:
               - kid
               - alg
               - use
+      description: "A JWK Set (RFC 7517 §5): the broker's RSA public key, or none without a signing key."
     OpenIdProviderMetadata:
       type: object
       required:
@@ -369,10 +382,15 @@ components:
           maxLength: 200
           description: |-
             `https://api.cloudflare.com` for Cloudflare credentials, or the URL of a service
-            the policy issues the broker's own tokens for.
+            the policy issues the broker's own tokens for. Empty is `invalid_request`.
           default: https://api.cloudflare.com
         requested_token_type:
           $ref: '#/components/schemas/IssuedTokenType'
+          description: |-
+            Checked against the audience, not used to choose: what's issued is what the profile
+            has. For Cloudflare's audience, `access_token` or `r2-credentials`; for a
+            service's, `jwt` or `access_token`, two names for the same JWT. Any other is
+            `invalid_target`.
         profile:
           type: string
           maxLength: 64
@@ -380,7 +398,9 @@ components:
         ttl:
           type: string
           maxLength: 16
-          description: Requested lifetime such as `10m` or `1h`, capped at the profile's `max_ttl`.
+          description: |-
+            Requested lifetime such as `10m` or `1h`, capped at the profile's `max_ttl`. If
+            omitted, the profile's `ttl`. Below `1m`, or unparseable, is `invalid_request`.
     TokenExchangeResponse:
       type: object
       required:
@@ -398,18 +418,20 @@ components:
             signed.
         issued_token_type:
           $ref: '#/components/schemas/IssuedTokenType'
+          description: '`access_token` with an `access_token`, `r2-credentials` without one, or `jwt` as asked for.'
         token_type:
           type: string
           enum:
             - Bearer
             - N_A
+          description: '`Bearer` with an `access_token`, or `N_A` without one (RFC 8693 §2.2.1).'
         expires_in:
           type: integer
           minimum: 0
           description: Seconds until the token, or the R2 credentials, expire.
         expires_at:
           type: integer
-          description: Unix time in seconds.
+          description: 'When the token, or the R2 credentials, expire: Unix time in seconds.'
         token_id:
           type: string
           description: The Cloudflare API token's ID, present with `access_token`.
@@ -418,8 +440,10 @@ components:
           description: The Cloudflare account, for the Cloudflare audience.
         profile:
           type: string
+          description: The profile that allowed the exchange.
         bucket:
           $ref: '#/components/schemas/BucketCredentials'
+          description: The R2 credentials, for a profile with a bucket.
     TokenRevocationRequest:
       type: object
       required:
@@ -429,11 +453,12 @@ components:
           type: string
           minLength: 1
           maxLength: 8192
+          description: The Cloudflare API token, as the exchange returned it in `access_token`.
         token_type_hint:
           type: string
           enum:
             - access_token
-          description: Ignored; only Cloudflare API tokens the broker minted can be revoked.
+          description: 'If sent, `access_token`, and ignored: only Cloudflare API tokens the broker minted can be revoked.'
 servers:
   - url: https://cf-oidc-exchange.example.com
     variables: {}

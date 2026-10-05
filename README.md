@@ -92,7 +92,8 @@ Everything runs inside the dev shell: `nix develop`, or the Dev Container.
 
 ```sh
 (cd action && npm ci && npm run lint && npm run typecheck && npm test)   # the action
-cargo test                                                               # the crates' unit tests
+(cd crates/cf-oidc-exchange-sdk/openapi && npm ci && npm run generate)   # the OpenAPI document, after editing the .tsp
+cargo fmt --all --check && cargo test                                    # the crates' unit tests
 crates/cf-oidc-exchange-api/tests/run.sh                                 # the broker end to end, under wrangler dev
 (cd deployment/terraform && tofu test)                                   # the Terraform module
 ```

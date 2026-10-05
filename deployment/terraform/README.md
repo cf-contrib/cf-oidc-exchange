@@ -52,7 +52,7 @@ by default deploys the broker of the release its `ref` points to.
   their parent (see [Buckets](../../crates/cf-oidc-exchange-api#buckets)).
 - A separate API token for *deploying*, exported as `CLOUDFLARE_API_TOKEN`, with:
   - **Account → Workers Scripts: Edit**
-  - **Account → Secrets Store: Edit**, to bind the Cloudflare token's secret
+  - **Account → Secrets Store: Edit**, to bind the Cloudflare token's secret, and the signing key's if set
   - **Zone → Workers Routes: Edit** on the broker's zone, only for a custom domain (not tested yet)
 
   The first two were enough for a workers.dev deploy in testing.
@@ -80,7 +80,8 @@ Secrets Store; the broker reads it on every request.
 
 ## URL
 
-`hostname` decides where the broker is served:
+`hostname` decides where the broker is served. It's bare and lowercase: no
+scheme, port or path.
 
 - A `*.workers.dev` hostname serves it on workers.dev. It must be
   `<worker_name>.<subdomain>.workers.dev`, with your account's subdomain: find it
@@ -97,7 +98,7 @@ The policy is three variables, as cf-nix-cache's module takes its providers,
 in the policy's own format (see the [broker's README](../../crates/cf-oidc-exchange-api#policy)):
 
 - `oidc_providers`: the OIDC issuers the broker trusts. Typed, and checked at
-  plan time: every provider needs a claim set. `audience` defaults to the
+  plan time: every provider needs at least one claim set, and none may be empty. `audience` defaults to the
   broker's URL, which is what the action asks for.
 - `profiles`: what callers may get. Untyped, because a token policy's
   `resources` are flat in one profile and nested in another, as Cloudflare
@@ -191,6 +192,14 @@ worker-build --release   # worker_dir = ".../crates/cf-oidc-exchange-api/build"
 | `worker_name` | no | `cf-oidc-exchange` | Worker script name. |
 | `worker_compatibility_date` | no | `2026-08-15` | Workers compatibility date. |
 
+## Outputs
+
+| Output | Description |
+|---|---|
+| `url` | The broker's URL: use it as the action's `url`. It's the policy's `issuer`, and providers' `audience` unless they name another. |
+| `worker_name` | The Worker's script name. |
+| `release_tag` | The release deployed, or `local` with `worker_dir`. |
+
 ## Notes
 
 - Workers Logs is enabled so the audit log is kept. Add Logpush if you need it
@@ -198,5 +207,7 @@ worker-build --release   # worker_dir = ".../crates/cf-oidc-exchange-api/build"
 - Worker bindings are reset on every version upload, so every binding the broker
   needs is declared here.
 - `tofu test` plans the module with mocked providers (no credentials needed) and
-  checks the Cloudflare token binding, both URL modes, local artifacts, checksums, and
-  the policy built from its variables: what it fills in, what it leaves out, and its size.
+  checks the bindings (the Cloudflare token's, and the signing key's when set),
+  both URL modes and the `hostname` and `zone_id` checks, local artifacts,
+  checksums, and the policy built from its variables: what it fills in, what it
+  leaves out, and its size.

@@ -11,8 +11,9 @@ using OpenAPI;
 using Versioning;
 
 /**
- * Bodies are form-encoded, and errors are OAuth errors (RFC 6749 §5.2), as RFC 8693 and
- * RFC 7009 have it.
+ * Bodies are form-encoded, at most 16 KiB, and errors are OAuth errors (RFC 6749 §5.2),
+ * as RFC 8693 and RFC 7009 have it. Every response is `Cache-Control: no-store`, but
+ * the discovery endpoints' `200`s.
  *
  * Exchanges an OIDC token for short-lived Cloudflare credentials, or for an access token
  * the broker signs for another service (RFC 8693 token exchange at `POST /oauth/token`;
@@ -42,11 +43,12 @@ enum Versions {
 }
 
 model TokenRevocationRequest {
+  /** The Cloudflare API token, as the exchange returned it in `access_token`. */
   @minLength(1)
   @maxLength(8192)
   token: string;
 
-  /** Ignored; only Cloudflare API tokens the broker minted can be revoked. */
+  /** If sent, `access_token`, and ignored: only Cloudflare API tokens the broker minted can be revoked. */
   token_type_hint?: "access_token";
 }
 
@@ -65,22 +67,36 @@ model TokenExchangeRequest {
 
   /**
    * `https://api.cloudflare.com` for Cloudflare credentials, or the URL of a service
-   * the policy issues the broker's own tokens for.
+   * the policy issues the broker's own tokens for. Empty is `invalid_request`.
    */
   @maxLength(200)
   audience?: string = "https://api.cloudflare.com";
 
+  /**
+   * Checked against the audience, not used to choose: what's issued is what the profile
+   * has. For Cloudflare's audience, `access_token` or `r2-credentials`; for a
+   * service's, `jwt` or `access_token`, two names for the same JWT. Any other is
+   * `invalid_target`.
+   */
   requested_token_type?: IssuedTokenType;
 
   /** Profile to use. If omitted, exactly one profile must match. */
   @maxLength(64)
   profile?: string;
 
-  /** Requested lifetime such as `10m` or `1h`, capped at the profile's `max_ttl`. */
+  /**
+   * Requested lifetime such as `10m` or `1h`, capped at the profile's `max_ttl`. If
+   * omitted, the profile's `ttl`. Below `1m`, or unparseable, is `invalid_request`.
+   */
   @maxLength(16)
   ttl?: string;
 }
 
+/**
+ * What the exchange issues: a Cloudflare API token (`access_token`), R2 credentials
+ * alone (`r2-credentials`), or the broker's own JWT access token for a service
+ * (`access_token`, or `jwt` if asked for by that name).
+ */
 union IssuedTokenType {
   "urn:ietf:params:oauth:token-type:access_token",
   "urn:cf-oidc-exchange:params:oauth:token-type:r2-credentials",
@@ -95,14 +111,17 @@ model TokenExchangeResponse {
    */
   access_token?: string;
 
+  /** `access_token` with an `access_token`, `r2-credentials` without one, or `jwt` as asked for. */
   issued_token_type: IssuedTokenType;
+
+  /** `Bearer` with an `access_token`, or `N_A` without one (RFC 8693 §2.2.1). */
   token_type: "Bearer" | "N_A";
 
   /** Seconds until the token, or the R2 credentials, expire. */
   @minValue(0)
   expires_in: integer;
 
-  /** Unix time in seconds. */
+  /** When the token, or the R2 credentials, expire: Unix time in seconds. */
   expires_at: integer;
 
   /** The Cloudflare API token's ID, present with `access_token`. */
@@ -111,7 +130,10 @@ model TokenExchangeResponse {
   /** The Cloudflare account, for the Cloudflare audience. */
   account_id?: string;
 
+  /** The profile that allowed the exchange. */
   profile: string;
+
+  /** The R2 credentials, for a profile with a bucket. */
   bucket?: BucketCredentials;
 }
 
@@ -143,8 +165,13 @@ model AuthorizationServerMetadata {
   /** Empty, since there's no authorization endpoint for a response type to be for. */
   response_types_supported: string[];
 
+  /** Token exchange only: `urn:ietf:params:oauth:grant-type:token-exchange`. */
   grant_types_supported: string[];
+
+  /** `none`: callers don't authenticate as clients; the subject token is the proof. */
   token_endpoint_auth_methods_supported?: string[];
+
+  /** `none`: holding the token is the proof. */
   revocation_endpoint_auth_methods_supported?: string[];
 }
 
@@ -165,6 +192,7 @@ model OpenIdProviderMetadata {
   id_token_signing_alg_values_supported: string[];
 }
 
+/** A JWK Set (RFC 7517 §5): the broker's RSA public key, or none without a signing key. */
 model Jwks {
   keys: {
     kty: "RSA";
@@ -200,7 +228,10 @@ enum ErrorCode {
 // mistakes, the description says what was wrong; for the broker's faults it's
 // generic, and the broker's logs say why.
 
-/** The caller's mistake: the description says what was wrong. */
+/**
+ * The caller's mistake: the description says what was wrong. A request that doesn't fit
+ * this contract, such as a JSON body, is `invalid_request` too.
+ */
 @error
 model BadRequest {
   @statusCode _: 400;
