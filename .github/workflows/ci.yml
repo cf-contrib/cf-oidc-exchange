@@ -90,16 +90,16 @@ jobs:
         run: |
           test -z "$CLOUDFLARE_API_TOKEN"   # r2 only: no API token
           test "$CLOUDFLARE_ACCOUNT_ID" = 0123456789abcdef0123456789abcdef
-          test "$AWS_ACCESS_KEY_ID" = stub-r2-access-key-id   # replaces the stale one
-          test "$AWS_SECRET_ACCESS_KEY" = stub-r2-secret-access-key
-          test "$AWS_SESSION_TOKEN" = stub-r2-session-token
-          test "$AWS_SECURITY_TOKEN" = stub-r2-session-token
-          test "$AWS_ENDPOINT_URL_S3" = https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com
-          test "$AWS_REGION" = auto
-          test "$AWS_DEFAULT_REGION" = auto
+          test "$CLOUDFLARE_R2_ACCESS_KEY_ID" = stub-r2-access-key-id
+          test "$CLOUDFLARE_R2_SECRET_ACCESS_KEY" = stub-r2-secret-access-key
+          test "$CLOUDFLARE_R2_SESSION_TOKEN" = stub-r2-session-token
+          test "$CLOUDFLARE_R2_ENDPOINT" = https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com
           test "$CLOUDFLARE_R2_BUCKET" = org-terraform-state
           test "$CLOUDFLARE_R2_PREFIX" = github.com/example-org/app/
           test "$CLOUDFLARE_R2_PREFIXES" = '["github.com/example-org/app/"]'
+          test "$AWS_ACCESS_KEY_ID" = stale-access-key-id   # AWS_* is left alone
+          test "$AWS_SESSION_TOKEN" = stale-session-token
+          test -z "$AWS_SECRET_ACCESS_KEY$AWS_ENDPOINT_URL_S3"
       - name: Run cf-oidc-exchange (token)
         uses: ./
         env:

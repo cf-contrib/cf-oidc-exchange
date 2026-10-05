@@ -60,7 +60,7 @@ A floating `v1` tag will follow each release from 1.0 on.
   - asks the broker for a Cloudflare token (not retried, because minting isn't idempotent);
   - masks the token and the OIDC token;
   - exports `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` for the rest of the job. For a profile with only a `bucket` there's no token, and only `CLOUDFLARE_ACCOUNT_ID` is exported;
-  - when the profile has a `bucket`, also exports its [S3 credentials](#r2-over-the-s3-api) as the job's AWS credentials, and masks the secret and session token;
+  - when the profile has a `bucket`, also exports its [S3 credentials](#r2-over-the-s3-api) as `CLOUDFLARE_R2_*`, and masks the secret and session token;
   - logs the token ID, profile and expiry (none of them secret), so a run can be matched to the broker's audit log:
     ```
     cf-oidc: minted token 3f2a… (profile workers-deploy, expires 2026-09-28T12:15:00Z)
@@ -104,21 +104,35 @@ None of this can be switched off: what's exported is decided by the profile. Exp
 
 ### R2 over the S3 API
 
-When the matched profile has a [`bucket`](../crates/cf-oidc-exchange-api#buckets), the broker returns temporary R2 credentials for it, limited to its key prefixes. The action exports them as the job's AWS credentials, so S3 tools work without a profile:
+When the matched profile has a [`bucket`](../crates/cf-oidc-exchange-api#buckets), the broker returns temporary R2 credentials for it, limited to its key prefixes. The action exports them under R2 names, and leaves the job's `AWS_*` variables alone:
 
 | Variable | Value |
 |---|---|
-| `AWS_ACCESS_KEY_ID` | the access key ID (not secret, not masked) |
-| `AWS_SECRET_ACCESS_KEY` | the secret access key, masked |
-| `AWS_SESSION_TOKEN`, `AWS_SECURITY_TOKEN` | the session token, masked. botocore still reads the legacy name |
-| `AWS_ENDPOINT_URL_S3` | `https://<account_id>.r2.cloudflarestorage.com` |
-| `AWS_REGION`, `AWS_DEFAULT_REGION` | `auto` |
+| `CLOUDFLARE_R2_ACCESS_KEY_ID` | the access key ID (not secret, not masked) |
+| `CLOUDFLARE_R2_SECRET_ACCESS_KEY` | the secret access key, masked |
+| `CLOUDFLARE_R2_SESSION_TOKEN` | the session token, masked. The credentials are temporary, so clients need it |
+| `CLOUDFLARE_R2_ENDPOINT` | `https://<account_id>.r2.cloudflarestorage.com` |
 | `CLOUDFLARE_R2_BUCKET` | the bucket's name |
 | `CLOUDFLARE_R2_PREFIXES` | the filled-in prefixes as JSON, e.g. `["100000001/200000003/"]`; `[]` for the whole bucket |
 | `CLOUDFLARE_R2_PREFIX` | the filled-in prefix, e.g. `100000001/200000003/`, if there's exactly one; otherwise empty |
 
-- **One bucket per profile.** A job that needs two buckets uses two profiles in two jobs, as in [Two scopes: two jobs](#two-scopes-two-jobs): a second run of the action in the same job replaces the first one's `AWS_*`.
-- **The policy decides when `AWS_*` is replaced.** The credentials overwrite any `AWS_*` credentials already set in the job, for every workflow matching a profile with a `bucket`, including one that doesn't set `profile`. Always set `profile` for R2, and give a job that also talks to AWS its R2 access in a separate job.
+S3 tools read `AWS_*`, so map the credentials in the step that runs them:
+
+```yaml
+      - uses: cf-contrib/cf-oidc-exchange@v0.11.0 # x-release-please-version
+        with:
+          url: https://cf-oidc-exchange.example.com
+          profile: terraform-state
+      - run: aws s3 cp plan.out "s3://$CLOUDFLARE_R2_BUCKET/${CLOUDFLARE_R2_PREFIX}plan.out"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ env.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ env.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ env.CLOUDFLARE_R2_SESSION_TOKEN }}
+          AWS_ENDPOINT_URL_S3: ${{ env.CLOUDFLARE_R2_ENDPOINT }}
+          AWS_REGION: auto
+```
+
+- **One bucket per profile.** A job that needs two buckets uses two profiles in two jobs, as in [Two scopes: two jobs](#two-scopes-two-jobs): a second run of the action in the same job replaces the first one's `CLOUDFLARE_R2_*`.
 - **No revocation.** The credentials last as long as the profile's `ttl` (or the requested `ttl`, capped at `max_ttl`), so keep it short.
 
 ### Two scopes: two jobs

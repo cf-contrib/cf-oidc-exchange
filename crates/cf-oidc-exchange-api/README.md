@@ -260,7 +260,7 @@ A profile's `bucket` gets the job [temporary R2 credentials](https://developers.
       prefixes: ["github.com/{repository}/"]
 ```
 
-- **One bucket per profile,** so the action always exports its credentials as the job's `AWS_*` credentials, and S3 tools work without naming a profile. A job that needs two buckets uses two profiles, in two jobs.
+- **One bucket per profile,** so the action always exports its credentials under the same names, `CLOUDFLARE_R2_*`. A job that needs two buckets uses two profiles, in two jobs.
 
 - **Placeholders** are `{claim}`, not `${claim}`, so HCL leaves them alone. Any claim can fill one: `{repository}` from GitHub Actions, `{project_path}` from GitLab, `{email}`… They're filled in from the verified token, never from the request.
 - **Prefixes** must end in `/`, so `github.com/org/site/` doesn't also cover `github.com/org/site-old/`. They can't start with `/` or contain `*`, `..`, empty or `.` segments, or control characters, and each placeholder must be a whole path segment (`tfstate/{repository_id}/`, not `tfstate-{repository_id}/`), so two repos can never end up with the same prefix. These are checked when the policy loads.
@@ -269,9 +269,6 @@ A profile's `bucket` gets the job [temporary R2 credentials](https://developers.
 - **Lifetime:** the profile's `ttl`, capped at its `max_ttl`, with the request's `ttl` still honoured. That's the same as the token's, in a profile with both. The credentials **can't be revoked early**, so keep TTLs short.
 - **Parent token:** the Cloudflare token calls `temp-access-credentials` with its own ID as the parent, as in [Cloudflare's example](https://developers.cloudflare.com/r2/examples/authenticate-r2-temp-credentials/), and the credentials can't exceed its permissions. Give it **Workers R2 Storage Write** (R2's "Admin Read & Write"), which is known to work. Cloudflare asks for "at least the permissions you plan to delegate", so an R2 permission limited to the profiles' buckets may be enough, but that hasn't been tried. Without an R2 permission the endpoint refuses the token with code `10000`, which the broker reports as `503` (`temporarily_unavailable`; `Cloudflare: temporaryCredentials.create: returned 403` in the audit log). Admin Read & Write is account-wide, but it doesn't widen what a leaked Cloudflare token can do: with Account API Tokens Write it could already mint itself a token with any R2 permission. The policy still only hands out `object-*` permissions. Revoking or rolling the Cloudflare token cuts off every credential issued from it within seconds, including those of jobs running at that moment. That's the emergency switch.
 - **With both** `token` and `bucket`, the broker mints the token first. If the credentials then can't be created, it deletes the token and replies `503`.
-
-> [!WARNING]
-> **The policy decides when a job's `AWS_*` variables are replaced.** The action exports the credentials, replacing `AWS_*`, whenever the matched profile has a `bucket`, including for workflows that don't set `profile`. Set `profile` for R2 in every workflow, and give a job that also talks to AWS its R2 access in a separate job.
 
 **Renamed and reused repo names.** A prefix built from `{repository}` moves when the repo is renamed, and a deleted repo's name can be taken by a new repo in the org, which would then get the old repo's state. `{repository_owner_id}/{repository_id}/` doesn't change on a rename and is never reused.
 
