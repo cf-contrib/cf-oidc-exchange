@@ -98,15 +98,12 @@ try {
   if (b !== undefined) {
     mask(b.secret_access_key);
     mask(b.session_token);
-    // The job's AWS credentials, so S3 tools work without a profile. They replace any
-    // AWS_* already set; botocore still reads the legacy AWS_SECURITY_TOKEN.
-    write("GITHUB_ENV", "AWS_ACCESS_KEY_ID", b.access_key_id);
-    write("GITHUB_ENV", "AWS_SECRET_ACCESS_KEY", b.secret_access_key);
-    write("GITHUB_ENV", "AWS_SESSION_TOKEN", b.session_token);
-    write("GITHUB_ENV", "AWS_SECURITY_TOKEN", b.session_token);
-    write("GITHUB_ENV", "AWS_ENDPOINT_URL_S3", b.endpoint);
-    write("GITHUB_ENV", "AWS_REGION", "auto");
-    write("GITHUB_ENV", "AWS_DEFAULT_REGION", "auto");
+    // Under R2 names, not AWS_*, so the job's AWS credentials are left alone. A step
+    // that runs S3 tools maps them to AWS_* itself.
+    write("GITHUB_ENV", "CLOUDFLARE_R2_ACCESS_KEY_ID", b.access_key_id);
+    write("GITHUB_ENV", "CLOUDFLARE_R2_SECRET_ACCESS_KEY", b.secret_access_key);
+    write("GITHUB_ENV", "CLOUDFLARE_R2_SESSION_TOKEN", b.session_token);
+    write("GITHUB_ENV", "CLOUDFLARE_R2_ENDPOINT", b.endpoint);
     write("GITHUB_ENV", "CLOUDFLARE_R2_BUCKET", b.name);
     write("GITHUB_ENV", "CLOUDFLARE_R2_PREFIXES", JSON.stringify(b.prefixes));
     // Only meaningful for exactly one prefix; CLOUDFLARE_R2_PREFIXES has them all.

@@ -136,13 +136,10 @@ describe("main", () => {
 
   /** What a bucket exports. */
   const BUCKET_ENV = {
-    AWS_ACCESS_KEY_ID: STUB_BUCKET.access_key_id,
-    AWS_SECRET_ACCESS_KEY: STUB_BUCKET.secret_access_key,
-    AWS_SESSION_TOKEN: STUB_BUCKET.session_token,
-    AWS_SECURITY_TOKEN: STUB_BUCKET.session_token,
-    AWS_ENDPOINT_URL_S3: `https://${STUB_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-    AWS_REGION: "auto",
-    AWS_DEFAULT_REGION: "auto",
+    CLOUDFLARE_R2_ACCESS_KEY_ID: STUB_BUCKET.access_key_id,
+    CLOUDFLARE_R2_SECRET_ACCESS_KEY: STUB_BUCKET.secret_access_key,
+    CLOUDFLARE_R2_SESSION_TOKEN: STUB_BUCKET.session_token,
+    CLOUDFLARE_R2_ENDPOINT: `https://${STUB_ACCOUNT_ID}.r2.cloudflarestorage.com`,
     CLOUDFLARE_R2_BUCKET: STUB_BUCKET.name,
     CLOUDFLARE_R2_PREFIXES: JSON.stringify(["github.com/example-org/app/"]),
     CLOUDFLARE_R2_PREFIX: "github.com/example-org/app/",
@@ -197,7 +194,14 @@ describe("main", () => {
     });
   });
 
-  it("exports no AWS variables when the profile has no bucket", async () => {
+  it("exports no AWS variables for a bucket", async () => {
+    stub = await startStub({ tokenFields: { bucket: STUB_BUCKET } });
+    const r = await action("main.js", { ...oidcEnv(stub.url), INPUT_URL: stub.url });
+    expect(r.code).toBe(0);
+    expect(Object.keys(r.env).filter((k) => k.startsWith("AWS_"))).toEqual([]);
+  });
+
+  it("exports no R2 variables when the profile has no bucket", async () => {
     stub = await startStub();
     const r = await action("main.js", { ...oidcEnv(stub.url), INPUT_URL: stub.url });
     expect(Object.keys(r.env).some((k) => k.startsWith("AWS_") || k.startsWith("CLOUDFLARE_R2_"))).toBe(false);

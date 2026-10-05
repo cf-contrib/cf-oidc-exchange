@@ -492,7 +492,7 @@ pub struct ProfileConfig {
     pub max_ttl: u64,
     pub token: Option<TokenConfig>,
     /// The bucket its caller gets R2 credentials for. One per profile, so the
-    /// action always exports them as the job's AWS credentials.
+    /// action always exports them under the same names.
     pub bucket: Option<BucketConfig>,
 }
 
