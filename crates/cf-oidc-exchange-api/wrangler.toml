@@ -40,7 +40,7 @@ CF_OIDC_EXCHANGE_API_POLICY = '''
   ],
   "defaults": { "ttl": "15m", "max_ttl": "1h" },
   "profiles": [
-    { "name": "infra-cloudflare", "provider": "github", "claims": [{ "repository_id": "200000002", "ref": "refs/heads/main", "environment": "prod" }],
+    { "name": "example-org/infra:ci.apply", "provider": "github", "claims": [{ "repository_id": "200000002", "ref": "refs/heads/main", "environment": "prod" }],
       "token": { "policies": [{ "permissions": ["Zone Write", "DNS Write"], "resources": { "com.cloudflare.api.account.zone.fedcba9876543210fedcba9876543210": "*" } }] } },
     { "name": "workers-deploy", "provider": "github", "claims": [{ "repository": "example-org/*", "ref": "refs/heads/main", "environment": "prod" }],
       "token": { "policies": [{ "permissions": ["Workers Scripts Write"], "resources": { "com.cloudflare.api.account.0123456789abcdef0123456789abcdef": "*" } }] } },
