@@ -20,7 +20,7 @@ permissions:
   id-token: write
 
 steps:
-  - uses: cf-contrib/cf-oidc-exchange@v0.12.0 # x-release-please-version
+  - uses: cf-contrib/cf-oidc-exchange@v0.13.0 # x-release-please-version
     with:
       url: https://cf-oidc-exchange.example.com
       profile: example-org/app:ci.deploy
