@@ -279,7 +279,7 @@ dependencies = [
  "chrono",
  "futures-util",
  "http-body-util",
- "jsonschema 0.58.3",
+ "jsonschema 0.58.5",
  "mime",
  "openapi-to-rust 0.19.0",
  "reqwest",
@@ -1092,9 +1092,9 @@ dependencies = [
 
 [[package]]
 name = "jsonschema"
-version = "0.58.3"
+version = "0.58.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "905edfa6eee835291d6efe33f733f7fcb40c2a24be93b78b74df95e56aef8611"
+checksum = "ea18b8d5e1469b1bdd6b349169305141316a7c26da27f239773b65c830c0f5d6"
 dependencies = [
  "ahash",
  "bytecount",
