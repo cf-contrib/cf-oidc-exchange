@@ -15,7 +15,7 @@ module "cf_oidc_exchange" {
 
   oidc_providers = [
     {
-      name   = "github"
+      name   = "com.github.actions"
       issuer = "https://token.actions.githubusercontent.com"
       claims = [{ repository_owner_id = "100000001" }] # pin the provider: your numeric org ID
     },
@@ -23,8 +23,8 @@ module "cf_oidc_exchange" {
 
   profiles = [
     {
-      name   = "workers-deploy"
-      claims = [{ repository_id = "200000002", ref = "refs/heads/main", environment = "prod" }]
+      name   = "example-org/app:ci.deploy"
+      claims = [{ repository_id = "200000003", ref = "refs/heads/main", environment = "prod" }] # example-org/app
       token = { policies = [{
         permissions = ["Workers Scripts Write"]
         resources   = { "com.cloudflare.api.account.${var.account_id}" = "*" }
@@ -112,14 +112,14 @@ hard-coded:
 
 ```hcl
   oidc_providers = [{
-    name   = "github"
+    name   = "com.github.actions"
     issuer = "https://token.actions.githubusercontent.com"
     claims = [{ repository_owner_id = data.github_organization.org.id }]
   }]
 
   profiles = [
     {
-      name   = "deploy"
+      name   = "${data.github_repository.app.full_name}:ci.deploy" # from the same repo as its claims
       claims = [{ repository_id = data.github_repository.app.repo_id }]
       token = { policies = [{
         permissions = ["Workers Scripts Write"]

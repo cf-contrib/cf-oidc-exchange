@@ -23,7 +23,7 @@ steps:
   - uses: cf-contrib/cf-oidc-exchange@v0.12.0 # x-release-please-version
     with:
       url: https://cf-oidc-exchange.example.com
-      profile: workers-deploy
+      profile: example-org/app:ci.deploy
   - run: npx wrangler deploy # CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID are set
 ```
 

@@ -23,7 +23,7 @@ jobs:
       - uses: cf-contrib/cf-oidc-exchange@v0.12.0 # x-release-please-version
         with:
           url: https://cf-oidc-exchange.example.com
-          profile: workers-deploy
+          profile: example-org/app:ci.deploy
       - run: npx wrangler deploy
 ```
 
@@ -63,8 +63,8 @@ A floating `v1` tag will follow each release from 1.0 on.
   - when the profile has a `bucket`, also exports its [S3 credentials](#r2-over-the-s3-api) as `CLOUDFLARE_R2_*`, and masks the secret and session token;
   - logs the token ID, profile and expiry (none of them secret), so a run can be matched to the broker's audit log:
     ```
-    cf-oidc: minted token 3f2a… (profile workers-deploy, expires 2026-09-28T12:15:00Z)
-    cf-oidc: issued R2 credentials for bucket org-terraform-state under 100000001/200000003/ (profile terraform-state, expires 2026-09-28T12:15:00Z)
+    cf-oidc: minted token 3f2a… (profile example-org/app:ci.deploy, expires 2026-09-28T12:15:00Z)
+    cf-oidc: issued R2 credentials for bucket org-terraform-state under 100000001/200000003/ (profile example-org:terraform-state, expires 2026-09-28T12:15:00Z)
     ```
 - **Post step:** revokes the token, if there is one. It runs even when the job fails. A failed revoke is a warning, not an error: the token expires on its own and the broker's cron deletes it. R2 credentials can't be revoked; the post step logs when they expire:
   ```
@@ -84,7 +84,7 @@ None of this can be switched off: what's exported is decided by the profile. Exp
       - uses: cf-contrib/cf-oidc-exchange@v0.12.0 # x-release-please-version
         with:
           url: https://cf-oidc-exchange.example.com
-          profile: workers-deploy
+          profile: example-org/app:ci.deploy
       - uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ env.CLOUDFLARE_API_TOKEN }}
@@ -97,7 +97,7 @@ None of this can be switched off: what's exported is decided by the profile. Exp
       - uses: cf-contrib/cf-oidc-exchange@v0.12.0 # x-release-please-version
         with:
           url: https://cf-oidc-exchange.example.com
-          profile: infra-cloudflare
+          profile: example-org/infra:ci.apply
           ttl: 30m
       - run: tofu apply -auto-approve # the cloudflare provider reads CLOUDFLARE_API_TOKEN
 ```
@@ -122,7 +122,7 @@ S3 tools read `AWS_*`, so map the credentials in the step that runs them:
       - uses: cf-contrib/cf-oidc-exchange@v0.12.0 # x-release-please-version
         with:
           url: https://cf-oidc-exchange.example.com
-          profile: terraform-state
+          profile: example-org:terraform-state
       - run: aws s3 cp plan.out "s3://$CLOUDFLARE_R2_BUCKET/${CLOUDFLARE_R2_PREFIX}plan.out"
         env:
           AWS_ACCESS_KEY_ID: ${{ env.CLOUDFLARE_R2_ACCESS_KEY_ID }}
@@ -146,7 +146,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: cf-contrib/cf-oidc-exchange@v0.12.0 # x-release-please-version
-        with: { url: https://cf-oidc-exchange.example.com, profile: service-dns }
+        with: { url: https://cf-oidc-exchange.example.com, profile: example-org/app:ci.dns }
       - run: ./scripts/update-dns.sh
 
   deploy:
@@ -157,7 +157,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: cf-contrib/cf-oidc-exchange@v0.12.0 # x-release-please-version
-        with: { url: https://cf-oidc-exchange.example.com, profile: workers-deploy }
+        with: { url: https://cf-oidc-exchange.example.com, profile: example-org/app:ci.deploy }
       - run: npx wrangler deploy
 ```
 

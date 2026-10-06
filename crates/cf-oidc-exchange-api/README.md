@@ -19,16 +19,16 @@ version: 3
 issuer: https://cf-oidc-exchange.example.com    # the broker's URL
 
 providers:
-  - name: github
+  - name: com.github.actions
     issuer: https://token.actions.githubusercontent.com
     audience: https://cf-oidc-exchange.example.com
     claims:
       - repository_owner_id: "100000001"     # your org's numeric ID, required of every token
 
 profiles:
-  - name: workers-deploy
+  - name: example-org/app:ci.deploy          # the deploy job in example-org/app's ci.yml
     claims:
-      - repository_id: "200000002"
+      - repository_id: "200000003"           # example-org/app
         ref: refs/heads/main
         environment: prod
     ttl: 15m
@@ -39,7 +39,7 @@ profiles:
             com.cloudflare.api.account.0123456789abcdef0123456789abcdef: "*"
 ```
 
-A job in repo `200000002`, on `main`, in the `prod` environment, gets a 15-minute token that can deploy Workers in the account. Any other job is refused with `400` (`invalid_request`).
+A job in `example-org/app` (repo `200000003`), on `main`, in the `prod` environment, gets a 15-minute token that can deploy Workers in the account. Any other job is refused with `400` (`invalid_request`).
 
 ## Deploy
 
@@ -49,7 +49,7 @@ A job in repo `200000002`, on `main`, in the `prod` environment, gets a 15-minut
    ```
 2. **Look up numeric IDs.** Pin IDs, not names, because a deleted repo or org name can be re-registered by someone else. For GitHub Actions:
    ```sh
-   gh api orgs/<org> --jq .id           # the github provider's repository_owner_id
+   gh api orgs/<org> --jq .id           # the GitHub Actions provider's repository_owner_id
    gh api repos/<org>/<repo> --jq .id   # a profile's repository_id
    ```
 3. **Deploy** the released Worker with the [Terraform module](../../deployment/terraform) (`//deployment/terraform?ref=<version>`). It downloads the release (optionally pinned to a checksum), binds your policy to it, and sets up the bindings, the workers.dev URL (or an optional custom domain) and the cron. To deploy a build of your own, build it and point the module's `worker_dir` at it:
@@ -86,19 +86,19 @@ version: 3
 issuer: https://cf-oidc-exchange.example.com   # REQUIRED: the broker's URL, as its own tokens name it: an origin, no trailing /
 
 providers:
-  - name: github                             # GitHub Actions
+  - name: com.github.actions                 # GitHub Actions
     issuer: https://token.actions.githubusercontent.com   # GitHub Enterprise Cloud: .../<enterprise>
     audience: https://cf-oidc-exchange.example.com        # what the action asks GitHub for: the broker's URL
     claims:
       - repository_owner_id: "100000001"     # REQUIRED: pin your org's numeric ID
 
-  - name: gitlab                             # GitLab CI, with id_tokens: { aud: <the broker's URL> }
+  - name: com.gitlab                         # GitLab CI, with id_tokens: { aud: <the broker's URL> }
     issuer: https://gitlab.com
     audience: https://cf-oidc-exchange.example.com
     claims:
       - namespace_id: "4000001"              # REQUIRED: pin your group's ID
 
-  - name: access                             # people, through a Cloudflare Access application
+  - name: com.cloudflare.access              # people, through a Cloudflare Access application
     issuer: https://example.cloudflareaccess.com
     audience: <the Access application's AUD tag>
     jwks_uri: https://example.cloudflareaccess.com/cdn-cgi/access/certs
@@ -110,10 +110,10 @@ defaults:
   max_ttl: 1h  # default 1h, at most 24h
 
 profiles:
-  - name: infra-cloudflare
-    provider: github
+  - name: example-org/infra:ci.apply    # the apply job in example-org/infra's ci.yml
+    provider: com.github.actions
     claims:
-      - repository_id: "200000002"
+      - repository_id: "200000002"      # example-org/infra
         ref: refs/heads/main
         environment: prod               # pair with required reviewers on the environment
     token:
@@ -122,8 +122,8 @@ profiles:
           resources:
             com.cloudflare.api.account.zone.fedcba9876543210fedcba9876543210: "*" # example.com
 
-  - name: workers-deploy
-    provider: github
+  - name: example-org:workers-deploy    # any repo in the org: named for its purpose
+    provider: com.github.actions
     claims:                             # any one of these sets
       - repository: "example-org/*"     # a trailing * is allowed on non-ID claims
         ref: refs/heads/main
@@ -137,8 +137,8 @@ profiles:
           resources:
             com.cloudflare.api.account.0123456789abcdef0123456789abcdef: "*"
 
-  - name: gitlab-deploy
-    provider: gitlab
+  - name: group/app:deploy              # the deploy job in group/app's .gitlab-ci.yml
+    provider: com.gitlab
     claims:
       - project_path: group/app
         ref_protected: "true"
@@ -150,8 +150,8 @@ profiles:
           resources:
             com.cloudflare.api.account.0123456789abcdef0123456789abcdef: "*"
 
-  - name: terraform-state               # no token: only R2 credentials
-    provider: github
+  - name: example-org:terraform-state   # no token: only R2 credentials
+    provider: com.github.actions
     claims:
       - ref: refs/heads/main
     bucket:
@@ -159,8 +159,8 @@ profiles:
       permission: object-read-write
       prefixes: ["{repository_owner_id}/{repository_id}/"]
 
-  - name: tofu-plan                     # for people, through Access
-    provider: access
+  - name: infra-admins:tofu-plan        # for people, through Access
+    provider: com.cloudflare.access
     claims:                             # any one of these people
       - email: alice@example.com
       - email: bob@example.com
@@ -279,11 +279,11 @@ A profile's `bucket` gets the job [temporary R2 credentials](https://developers.
 A profile with `audience: <service URL>` gives the caller a token the broker signs itself, for another service that trusts the broker, such as [cf-nix-cache](https://github.com/cf-contrib/cf-nix-cache). It has no `token` or `bucket`: who may use the service is decided by the profile's `claims`, like any other.
 
 ```yaml
-  - name: nix-push
-    provider: github
+  - name: example-org/app:ci.build
+    provider: com.github.actions
     audience: https://cf-nix-cache.example.com
     claims:
-      - repository_id: "200000003"
+      - repository_id: "200000003"      # example-org/app
         ref: refs/heads/main
     ttl: 15m
 ```
@@ -312,8 +312,39 @@ Its `kid` is the public key's thumbprint, so replacing the secret rotates the ke
 - Durations look like `90s`, `15m`, `1h`, `1h30m`: each unit once, largest first.
 - `ttl` and `max_ttl` go on the profile, and apply to its token and bucket alike.
 - A requested `ttl` above the profile's `max_ttl` is clamped. Below `1m`, or unparseable, is a `400`. In the policy, a `ttl` below `1m` is refused when it loads.
-- Provider and profile names are 1–64 characters of `A-Z`, `a-z`, `0-9`, `_`, `.` and `-`, starting with a letter or digit, and unique.
+- Provider names are 1–64 characters of `A-Z`, `a-z`, `0-9`, `_`, `.` and `-`, starting with a letter or digit, and unique. They go into minted tokens' names, which `:` separates, and into `client_id`.
+- Profile names are 1–255 characters of `A-Z`, `a-z`, `0-9`, `_`, `.`, `:`, `/` and `-`, starting with a letter or digit, and unique, so a name can say whose the profile is: `example-org/app:ci.deploy`. See [Naming](#naming).
 - Minted tokens are named `cf-oidc:<provider>:<sub>`, at most 120 characters.
+
+### Naming
+
+These are recommendations: the broker enforces only the characters and the length.
+
+**Profiles: `<who>:<what>`.** `<who>` is the narrowest caller the profile's claims pin, written as its issuer writes it:
+
+| Caller | `<who>` | From the claim |
+|---|---|---|
+| A GitHub Actions repo | `<owner>/<repo>` | `repository` |
+| Every repo in a GitHub org (`repository: "example-org/*"`) | `<owner>` | `repository_owner` |
+| A GitLab project | `<group>/<project>` | `project_path` |
+| People through Cloudflare Access | a team or role, such as `infra-admins` | the profile's `email` set |
+
+`<what>` is the job, for a CI job: `<workflow>.<job>`, the workflow file's name without `.yml`, then the job's id. GitHub job ids can't contain `.`, so the last `.` separates the job even when the workflow's name has dots in it. GitLab has a single `.gitlab-ci.yml`, so it's just `<job>`. For an org-wide profile, or one for people, it's the purpose, such as `workers-deploy` or `tofu-plan`.
+
+| Profile | Name |
+|---|---|
+| The `deploy` job in `example-org/app`'s `ci.yml` | `example-org/app:ci.deploy` |
+| Workers deploys from `main` in any org repo | `example-org:workers-deploy` |
+| The GitLab `deploy` job in `group/app` | `group/app:deploy` |
+| `tofu plan` for people, through Access | `infra-admins:tofu-plan` |
+
+- **Name the job, not the tool:** `ci.apply`, not `ci.tofu-apply`. When the job is renamed, rename the profile with it.
+- **One job, one profile.** A job that needs two buckets uses two profiles, in two jobs.
+- **The name enforces nothing; the claims do.** Derive the name from the claims, so the two can't drift. In Terraform, build `name`, `repository_id` and `workflow_ref` from the same locals.
+
+**Providers: the issuing service, reverse-DNS.** `com.github.actions`, `com.gitlab`, `com.cloudflare.access`. That reads like the policy's resource keys (`com.cloudflare.api.account.<id>`) and, in the broker's own tokens, like the client identifier it is in `client_id`. A longer name takes more of a minted token's 120 characters, `cf-oidc:<provider>:<sub>`, which is cut to fit.
+
+**Bucket prefixes: the caller's path, under its issuer's host.** `github.com/{repository}/`, `gitlab.com/{project_path}/`. Such a prefix is readable, and can't collide across providers. But it moves when the repo is renamed or transferred, and a deleted repo's name can be reused: where that matters, use IDs, as the policy above does (see [Buckets](#buckets)).
 
 ### Guardrails
 
@@ -348,7 +379,7 @@ curl -sS https://cf-oidc-exchange.example.com/oauth/token \
   -d grant_type=urn:ietf:params:oauth:grant-type:token-exchange \
   -d subject_token="$GITHUB_OIDC_TOKEN" \
   -d subject_token_type=urn:ietf:params:oauth:token-type:id_token \
-  -d profile=workers-deploy
+  -d profile=example-org:workers-deploy
 ```
 
 | Parameter | |
@@ -374,7 +405,7 @@ The response has the standard fields plus the broker's own:
   "expires_at": 1790597700,
   "token_id": "…",
   "account_id": "0123456789abcdef0123456789abcdef",
-  "profile": "workers-deploy",
+  "profile": "example-org:workers-deploy",
   "bucket": { "name": "…", "access_key_id": "…", "secret_access_key": "…", "session_token": "…", "prefixes": ["…"], "endpoint": "…", "expires_on": "…" }
 }
 ```
@@ -401,7 +432,7 @@ curl -sS https://cf-oidc-exchange.example.com/oauth/revoke -d token="$CLOUDFLARE
 - `500 server_error`: the broker is misconfigured or failed
 - `503 temporarily_unavailable`: Cloudflare or the subject token's issuer failed
 
-For the caller's own mistakes (400) the description says what was wrong, for example `no profile matches the token`, `profiles a, b all match the token: name one`, `unknown profile x`, `profile workers-deploy isn't for provider gitlab`, `profile x is disabled` or `profile x doesn't match the token`. That tells a caller with a valid token which profile names exist. For the broker's faults (500, 503) the description is generic, and the logs say why.
+For the caller's own mistakes (400) the description says what was wrong, for example `no profile matches the token`, `profiles a, b all match the token: name one`, `unknown profile x`, `profile example-org:workers-deploy isn't for provider com.gitlab`, `profile x is disabled` or `profile x doesn't match the token`. That tells a caller with a valid token which profile names exist. For the broker's faults (500, 503) the description is generic, and the logs say why.
 
 **Contract:** [`exchangev1.tsp`](../cf-oidc-exchange-sdk/openapi/oidc/exchange/v1/exchangev1.tsp), in TypeSpec, compiled to the OpenAPI document [`exchangev1.yaml`](../cf-oidc-exchange-sdk/openapi/oidc/exchange/v1/exchangev1.yaml). The Worker's types, server and router are generated from it, and requests that don't fit it are refused (`400`) before any handler runs. The action's [`api.ts`](../../action/src/api.ts) mirrors it.
 
@@ -429,7 +460,7 @@ For the caller's own mistakes (400) the description says what was wrong, for exa
 The broker logs with [`tracing`](https://docs.rs/tracing), as JSON lines that Workers Logs indexes by field. Every mint, issue and denial is one line, with its `event` and, once the token is verified, the caller's `provider`, their token's `sub`, and in `claims` the claims the policy's claim sets for them name. Token values, R2 secrets and JWTs are never logged:
 
 ```json
-{"level":"INFO","event":"token.mint","provider":"github","profile":"workers-deploy","sub":"repo:example-org/api:environment:prod","claims":"{\"environment\":\"prod\",\"ref\":\"refs/heads/main\",\"repository\":\"example-org/api\",\"repository_owner_id\":\"100000001\"}","token_id":"<token-id>","expires_at":1790961140}
+{"level":"INFO","event":"token.mint","provider":"com.github.actions","profile":"example-org:workers-deploy","sub":"repo:example-org/app:environment:prod","claims":"{\"environment\":\"prod\",\"ref\":\"refs/heads/main\",\"repository\":\"example-org/app\",\"repository_owner_id\":\"100000001\"}","token_id":"<token-id>","expires_at":1790961140}
 ```
 
 `claims` is JSON text, since which claims a policy names is up to the policy. `expires_at` is in seconds since the epoch, as the exchange's response has it.
@@ -437,19 +468,19 @@ The broker logs with [`tracing`](https://docs.rs/tracing), as JSON lines that Wo
 R2 credentials are `r2.issued`, with the bucket, the filled-in prefixes and the permission:
 
 ```json
-{"level":"INFO","event":"r2.issued","provider":"github","profile":"terraform-state","sub":"repo:example-org/api:ref:refs/heads/main","claims":"{\"ref\":\"refs/heads/main\",\"repository_owner_id\":\"100000001\"}","bucket":"org-terraform-state","prefixes":"[\"100000001/200000003/\"]","permission":"object-read-write","expires_at":1790961140}
+{"level":"INFO","event":"r2.issued","provider":"com.github.actions","profile":"example-org:terraform-state","sub":"repo:example-org/app:ref:refs/heads/main","claims":"{\"ref\":\"refs/heads/main\",\"repository_owner_id\":\"100000001\"}","bucket":"org-terraform-state","prefixes":"[\"100000001/200000003/\"]","permission":"object-read-write","expires_at":1790961140}
 ```
 
 A token for another service is `token.issue`, with the audience and the token's `jti`, never the token:
 
 ```json
-{"level":"INFO","event":"token.issue","provider":"github","profile":"nix-push","sub":"repo:example-org/api:ref:refs/heads/main","claims":"{\"ref\":\"refs/heads/main\",\"repository_owner_id\":\"100000001\"}","audience":"https://cf-nix-cache.example.com","jti":"<uuid>","expires_at":1790960440}
+{"level":"INFO","event":"token.issue","provider":"com.github.actions","profile":"example-org/app:ci.build","sub":"repo:example-org/app:ref:refs/heads/main","claims":"{\"ref\":\"refs/heads/main\",\"repository_owner_id\":\"100000001\"}","audience":"https://cf-nix-cache.example.com","jti":"<uuid>","expires_at":1790960440}
 ```
 
 Denials are `token.deny`, a warning, with the response's `error`, and its `error_description` as `message`. For the broker's own faults, the message is the full one the caller doesn't get:
 
 ```json
-{"level":"WARN","event":"token.deny","provider":"github","profile":"workers-deploy","sub":"repo:example-org/api:environment:prod","claims":"{\"repository\":\"example-org/api\",\"repository_owner_id\":\"100000001\"}","error":"temporarily_unavailable","message":"Cloudflare: tokens.create: returned 500"}
+{"level":"WARN","event":"token.deny","provider":"com.github.actions","profile":"example-org:workers-deploy","sub":"repo:example-org/app:environment:prod","claims":"{\"repository\":\"example-org/app\",\"repository_owner_id\":\"100000001\"}","error":"temporarily_unavailable","message":"Cloudflare: tokens.create: returned 500"}
 ```
 
 - **Request problems** (`invalid_request`, `invalid_target`, `unsupported_grant_type`): what the contract refuses, such as another `grant_type`, `actor_token`, a missing field or a JSON body; an invalid subject token, or one from an issuer no provider is for; a `ttl` or `audience` that doesn't fit.
