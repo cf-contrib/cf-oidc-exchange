@@ -81,7 +81,7 @@ model TokenExchangeRequest {
   requested_token_type?: IssuedTokenType;
 
   /** Profile to use. If omitted, exactly one profile must match. */
-  @maxLength(64)
+  @maxLength(255)
   profile?: string;
 
   /**

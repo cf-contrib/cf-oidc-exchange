@@ -94,8 +94,10 @@ mod token_exchange_for_jobs {
         let claims = github_claims(
             json!({ "repository": "example-org/infra", "repository_id": "200000002" }),
         );
-        let res = job_token(&sign(claims), &[("profile", "infra-cloudflare")]).await;
+        let res = job_token(&sign(claims), &[("profile", "example-org/infra:ci.apply")]).await;
         assert_eq!(res.status, 200);
+        // The form body percent-encodes `/` and `:`; the name arrives intact.
+        assert_eq!(res.json()["profile"], "example-org/infra:ci.apply");
         assert_eq!(
             minted_policies(&token_id(&res)),
             json!([{
@@ -194,19 +196,19 @@ mod token_exchange_for_jobs {
         let t = start().await;
         let res = job_token(
             &sign(github_claims(json!({}))),
-            &[("profile", "infra-cloudflare")],
+            &[("profile", "example-org/infra:ci.apply")],
         )
         .await;
         assert_eq!(res.status, 400);
         let deny = t.deny().await;
-        assert_matches(&deny, json!({ "profile": "infra-cloudflare" }));
+        assert_matches(&deny, json!({ "profile": "example-org/infra:ci.apply" }));
         assert_refused(&deny, "invalid_request", "profile ");
     }
 
     #[tokio::test]
     async fn rejects_bad_fields() {
         let _t = start().await;
-        let long = "x".repeat(65);
+        let long = "x".repeat(256);
         let jwt = sign(github_claims(json!({})));
         let cases: [&[(&str, &str)]; 4] = [
             &[("ttl", "forever")],

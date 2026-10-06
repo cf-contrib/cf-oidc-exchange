@@ -393,7 +393,7 @@ components:
             `invalid_target`.
         profile:
           type: string
-          maxLength: 64
+          maxLength: 255
           description: Profile to use. If omitted, exactly one profile must match.
         ttl:
           type: string

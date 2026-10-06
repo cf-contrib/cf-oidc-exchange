@@ -452,7 +452,7 @@ impl ProviderConfig {
 
     fn check(&self, at: &str) -> Result<(), String> {
         // Its issuer, jwks_uri and audience are the providers' check.
-        check_name(&self.name).map_err(|why| format!("{at}.name {why}"))?;
+        check_provider_name(&self.name).map_err(|why| format!("{at}.name {why}"))?;
         if self.typ.as_deref().is_some_and(str::is_empty) {
             return Err(format!("{at}.typ must not be empty"));
         }
@@ -548,7 +548,7 @@ impl ProfileConfig {
     }
 
     fn check(&self, at: &str, issuer: &str, account_id: &str) -> Result<(), String> {
-        check_name(&self.name).map_err(|why| format!("{at}.name {why}"))?;
+        check_profile_name(&self.name).map_err(|why| format!("{at}.name {why}"))?;
         self.claims.check(&format!("{at}.claims"))?;
 
         // Guardrail 5: audiences are kept apart. The broker signs its own
@@ -966,19 +966,35 @@ impl PrefixTemplate {
     }
 }
 
-/// Whether `name` can name a provider or profile.
-fn check_name(name: &str) -> Result<(), &'static str> {
+/// Whether `name` can name a provider. It goes into the names of minted
+/// tokens, which `:` separates, and into `client_id`.
+fn check_provider_name(name: &str) -> Result<(), &'static str> {
+    if !is_name(name, &['_', '.', '-'], 64) {
+        return Err("must be 1-64 of [A-Za-z0-9_.-], starting with a letter or digit");
+    }
+    Ok(())
+}
+
+/// Whether `name` can name a profile. It's never part of a token name, a path
+/// or a key, so it can say whose it is: `<owner>/<repo>:<workflow>.<job>`.
+fn check_profile_name(name: &str) -> Result<(), &'static str> {
+    if !is_name(name, &['_', '.', ':', '/', '-'], 255) {
+        return Err("must be 1-255 of [A-Za-z0-9_.:/-], starting with a letter or digit");
+    }
+    Ok(())
+}
+
+/// Whether `name` is at most `max` ASCII letters, digits and `extra`, starting
+/// with a letter or digit.
+fn is_name(name: &str, extra: &[char], max: usize) -> bool {
     let first = name
         .chars()
         .next()
         .is_some_and(|c| c.is_ascii_alphanumeric());
     let rest = name
         .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'));
-    if !(first && rest && name.len() <= 64) {
-        return Err("must be 1-64 of [A-Za-z0-9_.-], starting with a letter or digit");
-    }
-    Ok(())
+        .all(|c| c.is_ascii_alphanumeric() || extra.contains(&c));
+    first && rest && name.len() <= max
 }
 
 /// Whether `url` is a bare origin, as an issuer or audience is: an
@@ -1182,7 +1198,11 @@ pub(super) mod tests {
             ),
             (
                 with("/profiles/0/name", json!("-x")),
-                "profiles[0].name must be 1-64",
+                "profiles[0].name must be 1-255 of [A-Za-z0-9_.:/-]",
+            ),
+            (
+                with("/profiles/0/name", json!("x".repeat(256))),
+                "profiles[0].name must be 1-255",
             ),
             (
                 with("/profiles/0/claims", json!([])),
@@ -1204,8 +1224,24 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn takes_profile_names_that_say_whose_they_are() {
+        for name in ["example-org/app:ci.deploy", &"x".repeat(255)] {
+            let policy = parse(&with("/profiles/0/name", json!(name)));
+            assert_eq!(policy.profiles[0].name, name);
+        }
+    }
+
+    #[test]
     fn rejects_bad_providers() {
         let cases = [
+            (
+                with("/providers/0/name", json!("com.github:actions")),
+                "providers[0].name must be 1-64 of [A-Za-z0-9_.-]",
+            ),
+            (
+                with("/providers/0/name", json!("example-org/actions")),
+                "providers[0].name must be 1-64 of [A-Za-z0-9_.-]",
+            ),
             (
                 with("/providers/0/claims", json!([])),
                 "providers[0].claims must contain at least one claim set",
