@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/cf-contrib/cf-oidc-exchange/compare/v0.12.0...v0.13.0) (2026-10-06)
+
+
+### Features
+
+* allow : and / in profile names ([d855533](https://github.com/cf-contrib/cf-oidc-exchange/commit/d855533df6fff854304ecd50eb6d6c5a03b3d386)), closes [#78](https://github.com/cf-contrib/cf-oidc-exchange/issues/78)
+
 ## [0.12.0](https://github.com/cf-contrib/cf-oidc-exchange/compare/v0.11.0...v0.12.0) (2026-10-05)
 
 
