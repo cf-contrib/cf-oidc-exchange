@@ -8,6 +8,7 @@
 mod broker;
 mod child;
 mod credentials;
+mod error;
 mod identity;
 mod keychain;
 mod pkce;
@@ -21,15 +22,10 @@ pub mod stub;
 pub use broker::*;
 pub use child::*;
 pub use credentials::*;
+pub use error::*;
 pub use identity::*;
 pub use keychain::*;
 pub use pkce::*;
 pub use provider::*;
 pub use redirect::*;
 pub use time::*;
-
-/// An error with what to do about it on a line of its own:
-/// `cf-sts: error: <message>` then `  hint: <hint>`.
-pub fn hinted(message: impl std::fmt::Display, hint: impl std::fmt::Display) -> anyhow::Error {
-    anyhow::anyhow!("{message}\n  hint: {hint}")
-}
