@@ -56,7 +56,7 @@ A job in `example-org/app` (repo `200000003`), on `main`, in the `prod` environm
    ```sh
    worker-build --release   # then worker_dir = ".../crates/cf-sts-api/build"
    ```
-4. **Check** that `<url>/.well-known/oauth-authorization-server` returns `200` (`https://cf-sts.<subdomain>.workers.dev`, or your custom domain). A `500` means the policy was rejected or a binding is wrong; the reasons are in Workers Logs.
+4. **Check** that `<url>/health/ready` returns `200` (`https://cf-sts.<subdomain>.workers.dev`, or your custom domain): the policy was accepted and the secrets can be read. A `500` means the policy was rejected or a binding is wrong, and a `503` that a secret can't be read; the reasons are in Workers Logs.
 
 ## Bindings
 
@@ -370,7 +370,7 @@ These are enforced when the policy loads, so an unsafe policy never serves a req
 | `GET` | `/.well-known/openid-configuration` | public | The same issuer and keys as OpenID Provider Metadata (OpenID Connect Discovery 1.0), for services that only read that. |
 | `GET` | `/.well-known/jwks` | public | The public key the broker signs its own tokens with. Empty without `CF_STS_API_SIGNING_KEY`. |
 | `GET` | `/health/live` | public | `200` whenever the Worker's bindings are valid. |
-| `GET` | `/health/ready` | public | `200` whenever the Worker's bindings are valid. It doesn't read the secrets: a route that needs them fails closed with `500`, with why in Workers Logs. |
+| `GET` | `/health/ready` | public | `200` when the Worker's bindings are valid and its secrets can be read: the Cloudflare token, and the signing key if one is bound. `503` otherwise, with why in Workers Logs (`unready`). It doesn't call Cloudflare's API, so it can't tell a revoked token from a good one. |
 
 Bodies are form-encoded and at most 16 KiB; anything else, such as a JSON body, is `400` (`invalid_request`). Every response is `Cache-Control: no-store`, except the discovery endpoints' `200`s, which are `public, max-age=300`.
 
@@ -500,6 +500,7 @@ The other events:
 | `cleanup.done` | `deleted` | The cron's run, and how many it deleted |
 | `cleanup.failed` | `error`, `message` | The cron's run failed |
 | `misconfigured` | `message` | The bindings or the policy are invalid: the first problem |
+| `unready` | `message` | `/health/ready` answered `503`: a secret can't be read, and why |
 
 ## Limitations
 

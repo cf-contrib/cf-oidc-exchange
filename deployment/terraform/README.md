@@ -70,7 +70,7 @@ $EDITOR main.tf                                # oidc_providers and profiles; se
 export CLOUDFLARE_API_TOKEN=...                # deploy token, not the broker's Cloudflare token
 tofu init
 tofu apply
-curl -fsS "$(tofu output -raw sts_url)/.well-known/oauth-authorization-server"   # 500 if the policy is wrong
+curl -fsS "$(tofu output -raw sts_url)/health/ready"   # 500 if the policy is wrong, 503 if a secret can't be read
 ```
 
 Terraform only references the secret by store ID and name. The token's value
@@ -212,6 +212,9 @@ worker-build --release   # worker_dir = ".../crates/cf-sts-api/build"
 
 - Workers Logs is enabled so the audit log is kept. Add Logpush if you need it
   for longer.
+- After every plan and apply, a `check` asks `<url>/health/ready` and warns
+  unless it's `200`: a secret Secrets Store won't hand over shows up in your
+  apply, not in the first job that asks for a token.
 - Worker bindings are reset on every version upload, so every binding the broker
   needs is declared here.
 - `tofu test` plans the module with mocked providers (no credentials needed) and
