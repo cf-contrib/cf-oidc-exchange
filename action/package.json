@@ -1,5 +1,5 @@
 {
-  "name": "cf-oidc-exchange-action",
+  "name": "cf-sts-action",
   "version": "0.0.0",
   "private": true,
   "description": "Keyless Cloudflare API access from GitHub Actions via OIDC",

@@ -20,7 +20,7 @@ override_data {
         node_id              = "RA_test2"
         size                 = 1
         updated_at           = "2026-10-02T00:00:00Z"
-        url                  = "https://api.github.com/repos/cf-contrib/cf-oidc-exchange/releases/assets/2"
+        url                  = "https://api.github.com/repos/cf-contrib/cf-sts/releases/assets/2"
       },
       {
         name                 = "index_bg.wasm.base64"
@@ -32,7 +32,7 @@ override_data {
         node_id              = "RA_test3"
         size                 = 1
         updated_at           = "2026-10-02T00:00:00Z"
-        url                  = "https://api.github.com/repos/cf-contrib/cf-oidc-exchange/releases/assets/3"
+        url                  = "https://api.github.com/repos/cf-contrib/cf-sts/releases/assets/3"
       },
       {
         name                 = "SHA256SUMS"
@@ -44,7 +44,7 @@ override_data {
         node_id              = "RA_test4"
         size                 = 1
         updated_at           = "2026-10-02T00:00:00Z"
-        url                  = "https://api.github.com/repos/cf-contrib/cf-oidc-exchange/releases/assets/4"
+        url                  = "https://api.github.com/repos/cf-contrib/cf-sts/releases/assets/4"
       },
     ]
   }
@@ -72,9 +72,9 @@ override_data {
 }
 
 variables {
-  cloudflare_token_secret = { secret_store_id = "00000000000000000000000000000000", secret_name = "cf-oidc-exchange-cloudflare-token" }
+  cloudflare_token_secret = { secret_store_id = "00000000000000000000000000000000", secret_name = "cf-sts-cloudflare-token" }
   account_id              = "0123456789abcdef0123456789abcdef"
-  hostname                = "cf-oidc-exchange.example.workers.dev"
+  hostname                = "cf-sts.example.workers.dev"
   oidc_providers = [
     { name = "github", issuer = "https://token.actions.githubusercontent.com", claims = [{ repository_owner_id = "100000001" }] },
   ]
@@ -97,7 +97,7 @@ run "secrets_store_binding" {
   assert {
     condition = anytrue([
       for b in cloudflare_worker_version.this.bindings :
-      b.name == "CF_OIDC_EXCHANGE_API_CLOUDFLARE_TOKEN" && b.type == "secrets_store_secret" && b.secret_name == "cf-oidc-exchange-cloudflare-token"
+      b.name == "CF_STS_API_CLOUDFLARE_TOKEN" && b.type == "secrets_store_secret" && b.secret_name == "cf-sts-cloudflare-token"
     ])
     error_message = "the Cloudflare token should be a Secrets Store binding"
   }
@@ -112,7 +112,7 @@ run "no_signing_key_by_default" {
   command = plan
 
   assert {
-    condition     = length([for b in cloudflare_worker_version.this.bindings : b if b.name == "CF_OIDC_EXCHANGE_API_SIGNING_KEY"]) == 0
+    condition     = length([for b in cloudflare_worker_version.this.bindings : b if b.name == "CF_STS_API_SIGNING_KEY"]) == 0
     error_message = "the signing key should only be bound when signing_key_secret is set"
   }
 }
@@ -121,13 +121,13 @@ run "signing_key_binding" {
   command = plan
 
   variables {
-    signing_key_secret = { secret_store_id = "00000000000000000000000000000000", secret_name = "cf-oidc-exchange-signing-key" }
+    signing_key_secret = { secret_store_id = "00000000000000000000000000000000", secret_name = "cf-sts-signing-key" }
   }
 
   assert {
     condition = anytrue([
       for b in cloudflare_worker_version.this.bindings :
-      b.name == "CF_OIDC_EXCHANGE_API_SIGNING_KEY" && b.type == "secrets_store_secret" && b.secret_name == "cf-oidc-exchange-signing-key"
+      b.name == "CF_STS_API_SIGNING_KEY" && b.type == "secrets_store_secret" && b.secret_name == "cf-sts-signing-key"
     ])
     error_message = "the signing key should be a Secrets Store binding"
   }
@@ -139,7 +139,7 @@ run "policy_is_built_from_the_variables" {
   assert {
     condition = anytrue([
       for b in cloudflare_worker_version.this.bindings :
-      b.name == "CF_OIDC_EXCHANGE_API_POLICY" && b.type == "plain_text" && b.text == local.policy_json
+      b.name == "CF_STS_API_POLICY" && b.type == "plain_text" && b.text == local.policy_json
     ])
     error_message = "the policy should be a plain_text binding"
   }
@@ -160,13 +160,13 @@ run "takes_a_providers_own_audience_jwks_uri_typ_and_defaults" {
 
   variables {
     oidc_providers = [
-      { name = "gitlab", issuer = "https://gitlab.com", audience = "https://cf-oidc-exchange.example.com/", jwks_uri = "https://gitlab.com/oauth/discovery/keys", typ = "at+jwt", claims = [{ namespace_id = "4000001" }] },
+      { name = "gitlab", issuer = "https://gitlab.com", audience = "https://cf-sts.example.com/", jwks_uri = "https://gitlab.com/oauth/discovery/keys", typ = "at+jwt", claims = [{ namespace_id = "4000001" }] },
     ]
     defaults = { ttl = "10m" }
   }
 
   assert {
-    condition     = jsondecode(local.policy_json).providers[0].audience == "https://cf-oidc-exchange.example.com/" && jsondecode(local.policy_json).providers[0].jwks_uri == "https://gitlab.com/oauth/discovery/keys"
+    condition     = jsondecode(local.policy_json).providers[0].audience == "https://cf-sts.example.com/" && jsondecode(local.policy_json).providers[0].jwks_uri == "https://gitlab.com/oauth/discovery/keys"
     error_message = "a provider's own audience and jwks_uri should be kept"
   }
 
@@ -229,12 +229,12 @@ run "workers_dev" {
   }
 
   assert {
-    condition     = output.url == "https://cf-oidc-exchange.example.workers.dev"
+    condition     = output.url == "https://cf-sts.example.workers.dev"
     error_message = "url should be the workers.dev URL"
   }
 
   assert {
-    condition     = jsondecode(local.policy_json).issuer == "https://cf-oidc-exchange.example.workers.dev" && jsondecode(local.policy_json).providers[0].audience == "https://cf-oidc-exchange.example.workers.dev"
+    condition     = jsondecode(local.policy_json).issuer == "https://cf-sts.example.workers.dev" && jsondecode(local.policy_json).providers[0].audience == "https://cf-sts.example.workers.dev"
     error_message = "the policy's issuer and the provider's audience should be the broker's URL"
   }
 }
@@ -243,7 +243,7 @@ run "custom_domain" {
   command = plan
 
   variables {
-    hostname = "cf-oidc-exchange.example.com"
+    hostname = "cf-sts.example.com"
     zone_id  = "fedcba9876543210fedcba9876543210"
   }
 
@@ -253,7 +253,7 @@ run "custom_domain" {
   }
 
   assert {
-    condition     = output.url == "https://cf-oidc-exchange.example.com"
+    condition     = output.url == "https://cf-sts.example.com"
     error_message = "url should be the custom domain"
   }
 }
@@ -286,7 +286,7 @@ run "rejects_a_url" {
   command = plan
 
   variables {
-    hostname = "https://cf-oidc-exchange.example.workers.dev"
+    hostname = "https://cf-sts.example.workers.dev"
   }
 
   expect_failures = [var.hostname]
@@ -296,7 +296,7 @@ run "rejects_a_custom_domain_without_zone_id" {
   command = plan
 
   variables {
-    hostname = "cf-oidc-exchange.example.com"
+    hostname = "cf-sts.example.com"
   }
 
   expect_failures = [var.zone_id]
