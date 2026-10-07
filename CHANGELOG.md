@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.0](https://github.com/cf-contrib/cf-sts/compare/v0.16.0...v0.17.0) (2026-10-07)
+
+
+### Features
+
+* keep an Access sign-in for 8h ([#90](https://github.com/cf-contrib/cf-sts/issues/90)) ([4471b5b](https://github.com/cf-contrib/cf-sts/commit/4471b5b3ce3b90349f99a17066f300160c8ace2e)), closes [#53](https://github.com/cf-contrib/cf-sts/issues/53)
+
 ## [0.16.0](https://github.com/cf-contrib/cf-sts/compare/v0.15.0...v0.16.0) (2026-10-07)
 
 
