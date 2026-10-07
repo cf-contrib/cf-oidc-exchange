@@ -1,12 +1,15 @@
-//! The tests' stand-ins, served from the test process: a broker, as the action
-//! tests' stub is, and the identity provider its metadata names, at `/idp`.
-//! All tokens and IDs are made up.
+//! The tests' stand-ins: a broker, as the action tests' stub is, and the
+//! identity provider its metadata names, at `/idp`, served from the test
+//! process; a keychain in memory; and unsigned ID tokens. All tokens and IDs
+//! are made up.
 
 use std::{
+    cell::RefCell,
     collections::HashMap,
     sync::{Arc, Mutex, MutexGuard},
 };
 
+use anyhow::Result;
 use axum::{
     Form, Json, Router,
     extract::{Query, State},
@@ -14,9 +17,41 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde_json::{Value, json};
 
-use super::{BrokerUrl, identity::tests::jwt};
+use super::{BrokerUrl, Store};
+
+/// Memory keeps logins in memory, for the tests.
+#[derive(Default)]
+pub struct Memory(RefCell<HashMap<String, String>>);
+
+impl Store for Memory {
+    fn load(&self, broker: &BrokerUrl) -> Result<Option<String>> {
+        Ok(self.0.borrow().get(broker.as_str()).cloned())
+    }
+
+    fn save(&self, broker: &BrokerUrl, id_token: &str) -> Result<()> {
+        self.0
+            .borrow_mut()
+            .insert(broker.to_string(), id_token.to_string());
+        Ok(())
+    }
+
+    fn delete(&self, broker: &BrokerUrl) -> Result<bool> {
+        Ok(self.0.borrow_mut().remove(broker.as_str()).is_some())
+    }
+}
+
+/// Returns an unsigned JWT with `claims`: the CLI never checks the signature.
+pub fn jwt(claims: Value) -> String {
+    let encode = |value: Value| URL_SAFE_NO_PAD.encode(value.to_string());
+    format!(
+        "{}.{}.signature",
+        encode(json!({ "alg": "RS256" })),
+        encode(claims)
+    )
+}
 
 /// The identity provider's client ID, which the broker's metadata names.
 pub const CLIENT_ID: &str = "stub-client-id";

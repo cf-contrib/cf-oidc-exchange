@@ -241,10 +241,7 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::*;
-    use crate::sts::{
-        stub::{self, Stub},
-        tests::{Memory, jwt},
-    };
+    use crate::sts::stub::{self, Memory, Stub, jwt};
 
     /// Parses `args` as cf-sts's command line, against `stub`'s broker.
     fn parse(stub: &Stub, args: &[&str]) -> ProgramCommand {

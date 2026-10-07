@@ -1,57 +1,12 @@
-use anyhow::{Context, Result, anyhow};
+//! The person's ID token, and what its claims say about it.
+
+use anyhow::{Result, anyhow};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::{BrokerUrl, hinted};
-
-/// The keychain service ID tokens are stored under, one per broker URL.
-const SERVICE: &str = "cf-sts";
-
-/// Store keeps the person's ID token between runs, under the broker's URL.
-pub trait Store {
-    /// Returns the ID token stored for `broker`, if any.
-    fn load(&self, broker: &BrokerUrl) -> Result<Option<String>>;
-    /// Stores `id_token` for `broker`, replacing any.
-    fn save(&self, broker: &BrokerUrl, id_token: &str) -> Result<()>;
-    /// Removes the ID token stored for `broker`, and returns whether there was one.
-    fn delete(&self, broker: &BrokerUrl) -> Result<bool>;
-}
-
-/// The OS keychain: Keychain on macOS, the Secret Service on Linux, Credential
-/// Manager on Windows.
-pub struct Keychain;
-
-impl Keychain {
-    fn entry(broker: &BrokerUrl) -> Result<keyring::Entry> {
-        keyring::Entry::new(SERVICE, broker.as_str()).context("the OS keychain failed")
-    }
-}
-
-impl Store for Keychain {
-    fn load(&self, broker: &BrokerUrl) -> Result<Option<String>> {
-        match Self::entry(broker)?.get_password() {
-            Ok(token) => Ok(Some(token)),
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(err) => Err(err).context("the OS keychain failed"),
-        }
-    }
-
-    fn save(&self, broker: &BrokerUrl, id_token: &str) -> Result<()> {
-        Self::entry(broker)?
-            .set_password(id_token)
-            .context("the OS keychain failed")
-    }
-
-    fn delete(&self, broker: &BrokerUrl) -> Result<bool> {
-        match Self::entry(broker)?.delete_credential() {
-            Ok(()) => Ok(true),
-            Err(keyring::Error::NoEntry) => Ok(false),
-            Err(err) => Err(err).context("the OS keychain failed"),
-        }
-    }
-}
+use super::{BrokerUrl, Store, hinted, rfc3339};
 
 /// Identity is a person's ID token, and what its claims say about it.
 ///
@@ -145,62 +100,15 @@ pub fn expired(exp: i64) -> anyhow::Error {
     anyhow!("your login expired at {}; run 'cf-sts login'", rfc3339(exp))
 }
 
-/// Returns Unix seconds as the broker and the action show them, e.g.
-/// `2026-09-28T12:15:00Z`.
-pub fn rfc3339(seconds: i64) -> String {
-    DateTime::<Utc>::from_timestamp(seconds, 0)
-        .map(|at| at.format("%Y-%m-%dT%H:%M:%SZ").to_string())
-        .unwrap_or_else(|| seconds.to_string())
-}
-
-/// Returns how long until `exp`, roughly: `7h12m`, `5m`, `30s`.
-pub fn until(exp: i64) -> String {
-    let left = (exp - Utc::now().timestamp()).max(0);
-    match (left / 3600, left % 3600 / 60) {
-        (0, 0) => format!("{left}s"),
-        (0, minutes) => format!("{minutes}m"),
-        (hours, minutes) => format!("{hours}h{minutes}m"),
-    }
-}
-
 #[cfg(test)]
-pub mod tests {
-    use std::{cell::RefCell, collections::HashMap};
-
+mod tests {
     use serde_json::json;
 
     use super::*;
-
-    /// Memory keeps logins in memory, for the tests.
-    #[derive(Default)]
-    pub struct Memory(RefCell<HashMap<String, String>>);
-
-    impl Store for Memory {
-        fn load(&self, broker: &BrokerUrl) -> Result<Option<String>> {
-            Ok(self.0.borrow().get(broker.as_str()).cloned())
-        }
-
-        fn save(&self, broker: &BrokerUrl, id_token: &str) -> Result<()> {
-            self.0
-                .borrow_mut()
-                .insert(broker.to_string(), id_token.to_string());
-            Ok(())
-        }
-
-        fn delete(&self, broker: &BrokerUrl) -> Result<bool> {
-            Ok(self.0.borrow_mut().remove(broker.as_str()).is_some())
-        }
-    }
-
-    /// Returns an unsigned JWT with `claims`: the CLI never checks the signature.
-    pub fn jwt(claims: Value) -> String {
-        let encode = |value: Value| URL_SAFE_NO_PAD.encode(value.to_string());
-        format!(
-            "{}.{}.signature",
-            encode(json!({ "alg": "RS256" })),
-            encode(claims)
-        )
-    }
+    use crate::sts::{
+        stub::{Memory, jwt},
+        until,
+    };
 
     fn broker() -> BrokerUrl {
         BrokerUrl::parse(Some("https://cf-sts.example.com")).unwrap()
@@ -260,10 +168,5 @@ pub mod tests {
             err,
             "your login expired at 2026-09-21T14:13:20Z; run 'cf-sts login'"
         );
-    }
-
-    #[test]
-    fn formats_times_as_the_broker_does() {
-        assert_eq!(rfc3339(1_790_597_700), "2026-09-28T12:15:00Z");
     }
 }
