@@ -1,6 +1,6 @@
 [package]
 name = "cf-sts-cli"
-version = "0.13.0" # x-release-please-version
+version = "0.15.0" # x-release-please-version
 edition = "2024"
 authors = ["iamralch"]
 readme = "README.md"
