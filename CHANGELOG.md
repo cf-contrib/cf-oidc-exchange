@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.16.0](https://github.com/cf-contrib/cf-sts/compare/v0.15.0...v0.16.0) (2026-10-07)
+
+
+### Features
+
+* an Access module, for signing people in ([#88](https://github.com/cf-contrib/cf-sts/issues/88)) ([daff6c5](https://github.com/cf-contrib/cf-sts/commit/daff6c5ddb068d1d3a61a38c84d95f2bafc5b02c)), closes [#53](https://github.com/cf-contrib/cf-sts/issues/53)
+* ready only while the config checks out ([#87](https://github.com/cf-contrib/cf-sts/issues/87)) ([67ce5bb](https://github.com/cf-contrib/cf-sts/commit/67ce5bbed333a4794b4469628feb60d6d4173cc1))
+
 ## [0.15.0](https://github.com/cf-contrib/cf-sts/compare/v0.14.0...v0.15.0) (2026-10-07)
 
 
