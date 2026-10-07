@@ -40,6 +40,48 @@ run "is_a_public_pkce_client_for_the_cli" {
   }
 }
 
+run "keeps_a_sign_in_for_a_working_day" {
+  command = plan
+
+  assert {
+    condition     = cloudflare_zero_trust_access_application.this.saas_app.access_token_lifetime == "8h"
+    error_message = "a sign-in should last 8h by default, not Access's 5m"
+  }
+}
+
+run "takes_a_token_lifetime" {
+  command = plan
+
+  variables {
+    token_lifetime = "30m"
+  }
+
+  assert {
+    condition     = cloudflare_zero_trust_access_application.this.saas_app.access_token_lifetime == "30m"
+    error_message = "token_lifetime should set the access token lifetime"
+  }
+}
+
+run "rejects_a_token_lifetime_over_a_day" {
+  command = plan
+
+  variables {
+    token_lifetime = "25h"
+  }
+
+  expect_failures = [var.token_lifetime]
+}
+
+run "rejects_a_token_lifetime_in_seconds" {
+  command = plan
+
+  variables {
+    token_lifetime = "300s"
+  }
+
+  expect_failures = [var.token_lifetime]
+}
+
 run "lets_in_only_the_given_emails" {
   command = plan
 
