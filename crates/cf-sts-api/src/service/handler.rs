@@ -32,7 +32,7 @@ use std::sync::Arc;
 use cf_sts_core::{AccessTokenClaims, Jwt, SigningKey};
 use cf_sts_sdk::v1::{
     self, AuthorizationServerMetadata, BucketCredentials, DiscoveryServiceApi, Error, ErrorCode,
-    IssuedTokenType, Jwks, Login, OpenIdProviderMetadata, TokenExchangeRequest,
+    IdentityProvider, IssuedTokenType, Jwks, OpenIdProviderMetadata, TokenExchangeRequest,
     TokenExchangeRequestSubjectTokenType as SubjectTokenType, TokenExchangeResponse,
     TokenExchangeResponseTokenType as TokenType, TokenRevocationRequest, TokenServiceApi,
 };
@@ -647,8 +647,8 @@ impl DiscoveryServiceApi for DiscoveryServiceHandler {
     /// `GET /.well-known/oauth-authorization-server`: the broker's
     /// Authorization Server Metadata (RFC 8414), so services can find its keys
     /// and endpoints. It issues tokens by exchange only, so there's no
-    /// authorization endpoint. With the policy's `login` provider, it also
-    /// says where people sign in, so a client needs only the broker's URL.
+    /// authorization endpoint. With providers people sign in with, it also
+    /// says which, so a client needs only the broker's URL.
     async fn metadata(&self) -> v1::MetadataResponse {
         let policy = self.config.policy();
         let issuer = &policy.issuer;
@@ -673,10 +673,17 @@ impl DiscoveryServiceApi for DiscoveryServiceHandler {
             grant_types_supported: vec![TOKEN_EXCHANGE.into()],
             token_endpoint_auth_methods_supported: Some(vec!["none".into()]),
             revocation_endpoint_auth_methods_supported: Some(vec!["none".into()]),
-            login: policy.login_provider().map(|provider| Login {
-                issuer: provider.issuer.clone(),
-                client_id: provider.audience.clone(),
-            }),
+            identity_providers: Some(
+                policy
+                    .identity_providers()
+                    .map(|provider| IdentityProvider {
+                        name: provider.name.clone(),
+                        issuer: provider.issuer.clone(),
+                        client_id: provider.client_id.clone().unwrap_or_default(),
+                    })
+                    .collect::<Vec<_>>(),
+            )
+            .filter(|providers| !providers.is_empty()),
         })
     }
 

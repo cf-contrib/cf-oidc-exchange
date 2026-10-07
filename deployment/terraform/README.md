@@ -94,7 +94,7 @@ Either way the broker is reachable on exactly one URL, the `url` output, which i
 
 ## Policy
 
-The policy is these variables, as cf-nix-cache's module takes its providers,
+The policy is three variables, as cf-nix-cache's module takes its providers,
 in the policy's own format (see the [broker's README](../../crates/cf-sts-api#policy)):
 
 - `oidc_providers`: the OIDC issuers the broker trusts. Typed, and checked at
@@ -105,8 +105,6 @@ in the policy's own format (see the [broker's README](../../crates/cf-sts-api#po
   takes them; the plan checks each has a name and a claim set, and the broker
   checks the rest.
 - `defaults`: the TTLs of profiles that don't set their own.
-- `login_provider`: the provider people sign in with, by name, for the
-  [CLI](../../crates/cf-sts-cli). See [People](../../crates/cf-sts-api#people).
 
 The module fills in the rest: the policy's `version`, and its `issuer`, the
 broker's URL. Since it's plain HCL, IDs can come from data sources, so none are
@@ -193,10 +191,9 @@ worker-build --release   # worker_dir = ".../crates/cf-sts-api/build"
 | `zone_id` | for a custom domain | `null` | Zone ID of the zone holding a custom-domain `hostname`. |
 | `cloudflare_token_secret` | yes | | `{ secret_store_id, secret_name }` of the Secrets Store secret holding the Cloudflare token. With a profile's `bucket`, the token also needs R2 permissions covering what it delegates. |
 | `signing_key_secret` | for profiles with an `audience` | `null` | `{ secret_store_id, secret_name }` of the Secrets Store secret holding the RSA key the broker signs its own tokens with. See [Tokens for other services](../../crates/cf-sts-api#tokens-for-other-services). |
-| `oidc_providers` | yes | | The OIDC issuers the broker trusts: `{ name, issuer, audience?, jwks_uri?, typ?, claims }` each. `audience` defaults to the broker's URL. See [Policy](#policy). |
+| `oidc_providers` | yes | | The OIDC issuers the broker trusts: `{ name, issuer, audience?, jwks_uri?, typ?, client_id?, claims }` each. `audience` defaults to the `client_id` [people](../../crates/cf-sts-api#people) sign in as, if there is one, and otherwise to the broker's URL. See [Policy](#policy). |
 | `profiles` | yes | | What callers may get, in the policy's format. See [Policy](#policy). |
 | `defaults` | no | `{}` | `{ ttl?, max_ttl? }`: the TTLs of profiles that don't set their own. |
-| `login_provider` | no | `null` | The provider people sign in with, by name: the policy's `login`. See [People](../../crates/cf-sts-api#people). |
 | `worker_dir` | no | `null` | A local build (`index.js`, `index_bg.wasm`) to deploy instead of a release. |
 | `release_tag` | no | the module's release | Release to deploy, or `latest`. |
 | `checksums_sha256` | no | `null` | Expected SHA-256 of the release's `SHA256SUMS`. |

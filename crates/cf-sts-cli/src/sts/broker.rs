@@ -2,8 +2,8 @@ use std::{fmt, future::Future, time::Duration};
 
 use anyhow::{Result, anyhow, bail};
 use cf_sts_sdk::v1::{
-    ApiError, ApiOpError, ErrorCode, ExchangeTokenApiError, HttpClient, Login, MetadataApiError,
-    TokenExchangeRequest, TokenExchangeRequestGrantType as GrantType,
+    ApiError, ApiOpError, ErrorCode, ExchangeTokenApiError, HttpClient, IdentityProvider,
+    MetadataApiError, TokenExchangeRequest, TokenExchangeRequestGrantType as GrantType,
     TokenExchangeRequestSubjectTokenType as SubjectTokenType, TokenExchangeResponse,
     TokenRevocationRequest, TokenRevocationRequestTokenTypeHint as TokenTypeHint,
 };
@@ -107,8 +107,10 @@ impl Broker {
             })
     }
 
-    /// Returns where people sign in, from the broker's metadata.
-    pub async fn login(&self) -> Result<Login> {
+    /// Returns the identity provider people sign in with, from the broker's
+    /// metadata: the one `name`d, or else the only one. With several and none
+    /// named, it fails rather than ask, so an agent never waits on it.
+    pub async fn identity_provider(&self, name: Option<&str>) -> Result<IdentityProvider> {
         let path = "/.well-known/oauth-authorization-server";
         let metadata = self.call(path, self.client.metadata()).await?.map_err(
             |err: ApiOpError<MetadataApiError>| match err {
@@ -116,12 +118,41 @@ impl Broker {
                 ApiOpError::Transport(err) => self.unreachable(&err),
             },
         )?;
-        metadata.login.ok_or_else(|| {
-            hinted(
-                format!("the broker at {} names no login", self.url),
-                "its policy's login names the provider people sign in with",
-            )
-        })
+        let mut providers = metadata.identity_providers.unwrap_or_default();
+        let names = || {
+            let names: Vec<&str> = providers.iter().map(|p| p.name.as_str()).collect();
+            names.join(", ")
+        };
+        let found = match name {
+            Some(name) => providers
+                .iter()
+                .position(|p| p.name == name)
+                .ok_or_else(|| {
+                    anyhow!(
+                        "the broker at {} has no identity provider {name}; it has {}",
+                        self.url,
+                        names()
+                    )
+                })?,
+            None if providers.len() == 1 => 0,
+            None if providers.is_empty() => {
+                return Err(hinted(
+                    format!("the broker at {} names no identity provider", self.url),
+                    "give the provider people sign in with a client_id in its policy",
+                ));
+            }
+            None => {
+                return Err(hinted(
+                    format!(
+                        "the broker at {} has several identity providers: {}",
+                        self.url,
+                        names()
+                    ),
+                    "pass --provider or set CF_STS_CLI_PROVIDER",
+                ));
+            }
+        };
+        Ok(providers.swap_remove(found))
     }
 
     /// Awaits `request`, giving up after [`TIMEOUT`].
@@ -324,16 +355,47 @@ mod tests {
     #[tokio::test]
     async fn reads_where_people_sign_in_from_the_metadata() {
         let stub = Stub::start().await;
-        let login = Broker::new(&stub.url()).login().await.unwrap();
-        assert_eq!(login.issuer, stub.issuer());
-        assert_eq!(login.client_id, stub::CLIENT_ID);
+        let broker = Broker::new(&stub.url());
+        let only = broker.identity_provider(None).await.unwrap();
+        assert_eq!(
+            (only.name.as_str(), only.issuer, only.client_id.as_str()),
+            ("access", stub.issuer(), stub::CLIENT_ID)
+        );
 
-        stub.without_login();
-        let err = Broker::new(&stub.url())
-            .login()
+        stub.identity_providers(&[]);
+        let err = broker
+            .identity_provider(None)
             .await
             .unwrap_err()
             .to_string();
-        assert!(err.contains("names no login\n  hint:"), "{err}");
+        assert!(err.contains("names no identity provider\n  hint:"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn picks_an_identity_provider_by_name_when_there_are_several() {
+        let stub = Stub::start().await;
+        stub.identity_providers(&["access", "okta"]);
+        let broker = Broker::new(&stub.url());
+
+        let err = broker
+            .identity_provider(None)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.ends_with("several identity providers: access, okta\n  hint: pass --provider or set CF_STS_CLI_PROVIDER"),
+            "{err}"
+        );
+        let okta = broker.identity_provider(Some("okta")).await.unwrap();
+        assert_eq!(okta.name, "okta");
+        let err = broker
+            .identity_provider(Some("google"))
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.ends_with("has no identity provider google; it has access, okta"),
+            "{err}"
+        );
     }
 }

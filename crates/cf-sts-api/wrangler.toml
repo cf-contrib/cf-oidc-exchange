@@ -27,7 +27,7 @@ CF_STS_API_CLOUDFLARE_URL = "http://127.0.0.1:8791/cloudflare/client/v4"
 # `mismatched`'s discovery document names another issuer, and so does
 # `pinned`'s, whose keys are at its jwks_uri. `typed` takes only access tokens,
 # which the stand-ins don't sign. `access` is where people sign in, shaped like
-# an Access for SaaS OIDC app: its audience is the app's client ID.
+# an Access for SaaS OIDC app: its audience is its client ID.
 CF_STS_API_POLICY = '''
 {
   "version": 3,
@@ -38,9 +38,8 @@ CF_STS_API_POLICY = '''
     { "name": "mismatched", "issuer": "http://127.0.0.1:8791/issuers/mismatched", "audience": "http://127.0.0.1:8790", "claims": [{ "namespace_id": "4000001" }] },
     { "name": "pinned", "issuer": "http://127.0.0.1:8791/issuers/pinned", "audience": "http://127.0.0.1:8790", "jwks_uri": "http://127.0.0.1:8791/issuers/pinned/.well-known/jwks", "claims": [{ "namespace_id": "4000001" }] },
     { "name": "typed", "issuer": "http://127.0.0.1:8791/issuers/typed", "audience": "http://127.0.0.1:8790", "typ": "at+jwt", "claims": [{ "namespace_id": "4000001" }] },
-    { "name": "access", "issuer": "http://127.0.0.1:8791/issuers/access", "audience": "test-access-client-id", "claims": [{ "iss": "http://127.0.0.1:8791/issuers/access" }] }
+    { "name": "access", "issuer": "http://127.0.0.1:8791/issuers/access", "client_id": "test-access-client-id", "claims": [{ "iss": "http://127.0.0.1:8791/issuers/access" }] }
   ],
-  "login": "access",
   "defaults": { "ttl": "15m", "max_ttl": "1h" },
   "profiles": [
     { "name": "example-org/infra:ci.apply", "provider": "github", "claims": [{ "repository_id": "200000002", "ref": "refs/heads/main", "environment": "prod" }],

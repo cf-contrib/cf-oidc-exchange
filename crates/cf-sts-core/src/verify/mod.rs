@@ -13,7 +13,11 @@ mod keys;
 mod metadata;
 mod policy;
 
-use std::{cell::RefCell, collections::HashMap, ops::Deref};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    ops::{Deref, DerefMut},
+};
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -163,6 +167,15 @@ impl<P> Deref for Providers<P> {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+/// For a policy to fill in what its providers leave out before
+/// [`check`](Providers::check), such as an audience that defaults to another
+/// field.
+impl<P> DerefMut for Providers<P> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 

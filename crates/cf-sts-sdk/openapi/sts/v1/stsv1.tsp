@@ -175,21 +175,24 @@ model AuthorizationServerMetadata {
   revocation_endpoint_auth_methods_supported?: string[];
 
   /**
-   * The broker's own extension: where people sign in for a subject token, when the
-   * policy names a provider for it. Not secret.
+   * The broker's own extension: the providers people sign in with for a subject token,
+   * those the policy gives a `client_id`. Left out when there are none. Not secret.
    */
-  login?: Login;
+  identity_providers?: IdentityProvider[];
 }
 
 /**
- * The OpenID Provider people sign in with, as a public client with PKCE, for an ID token
- * the broker takes: the policy's `login` provider.
+ * An OpenID Provider people sign in with as a public client, with PKCE, for an ID token
+ * the broker takes.
  */
-model Login {
-  /** The provider's issuer. Its OpenID Connect Discovery document has the endpoints. */
+model IdentityProvider {
+  /** The policy's name for it, which a client picks it by. */
+  name: string;
+
+  /** Its issuer. Its OpenID Connect Discovery document has the endpoints. */
   issuer: string;
 
-  /** The client to sign in as: the provider's `audience`, since an ID token's `aud` is its client ID. */
+  /** The client to sign in as: its ID tokens' `aud`. */
   client_id: string;
 }
 

@@ -150,32 +150,37 @@ run "policy_is_built_from_the_variables" {
   }
 
   assert {
-    condition     = !contains(keys(jsondecode(local.policy_json).providers[0]), "jwks_uri") && !contains(keys(jsondecode(local.policy_json).providers[0]), "typ") && !contains(keys(jsondecode(local.policy_json)), "defaults") && !contains(keys(jsondecode(local.policy_json)), "login")
+    condition     = !contains(keys(jsondecode(local.policy_json).providers[0]), "jwks_uri") && !contains(keys(jsondecode(local.policy_json).providers[0]), "typ") && !contains(keys(jsondecode(local.policy_json)), "defaults") && !contains(keys(jsondecode(local.policy_json).providers[0]), "client_id")
     error_message = "unset fields should be left out, not null: the broker refuses a null"
   }
 }
 
-run "names_the_login_provider" {
+run "takes_a_client_id_as_the_audience" {
   command = plan
 
   variables {
-    login_provider = "github"
+    oidc_providers = [
+      { name = "github", issuer = "https://token.actions.githubusercontent.com", claims = [{ repository_owner_id = "100000001" }] },
+      { name = "access", issuer = "https://example.cloudflareaccess.com/cdn-cgi/access/sso/oidc/abc", client_id = "abc", claims = [{ iss = "https://example.cloudflareaccess.com/cdn-cgi/access/sso/oidc/abc" }] },
+    ]
   }
 
   assert {
-    condition     = jsondecode(local.policy_json).login == "github"
-    error_message = "login_provider should reach the policy as login"
+    condition     = jsondecode(local.policy_json).providers[1].client_id == "abc" && jsondecode(local.policy_json).providers[1].audience == "abc"
+    error_message = "a client_id should reach the policy, as the provider's audience too"
   }
 }
 
-run "rejects_a_login_provider_that_isnt_a_provider" {
+run "rejects_a_client_id_that_isnt_the_audience" {
   command = plan
 
   variables {
-    login_provider = "access"
+    oidc_providers = [
+      { name = "access", issuer = "https://example.cloudflareaccess.com", audience = "https://cf-sts.example.com", client_id = "abc", claims = [{ type = "app" }] },
+    ]
   }
 
-  expect_failures = [var.login_provider]
+  expect_failures = [var.oidc_providers]
 }
 
 run "takes_a_providers_own_audience_jwks_uri_typ_and_defaults" {

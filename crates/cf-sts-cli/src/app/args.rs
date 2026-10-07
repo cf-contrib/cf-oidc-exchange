@@ -12,7 +12,8 @@ Or set CF_STS_CLI_URL and CF_STS_CLI_PROFILE, e.g. in the repo's dev shell:
   cf-sts exec -- tofu plan";
 const LOGIN_EXAMPLES: &str = "Examples:
   cf-sts login                # in your browser
-  cf-sts login --no-browser   # print the link, e.g. over SSH with port 8250 forwarded";
+  cf-sts login --no-browser   # print the link, e.g. over SSH with port 8250 forwarded
+  cf-sts login --provider com.cloudflare.access   # when the broker has several";
 const LOGOUT_EXAMPLES: &str = "Examples:
   cf-sts logout";
 const WHOAMI_EXAMPLES: &str = "Examples:
@@ -78,7 +79,7 @@ pub enum ProgramCommand {
         name = "login",
         after_help = LOGIN_EXAMPLES,
         about = "Sign in through your identity provider (browser).",
-        long_about = "Sign in at the identity provider the broker's metadata names, in your browser, and keep the ID token in the OS keychain under the broker's URL. It's the only thing cf-sts keeps between runs, and the only command that opens a browser or waits for you.",
+        long_about = "Sign in at an identity provider the broker's metadata lists, in your browser, and keep the ID token in the OS keychain under the broker's URL. It's the only thing cf-sts keeps between runs, and the only command that opens a browser or waits for you.",
         next_display_order = 1
     )]
     Login(LoginCommandArgs),
@@ -132,6 +133,14 @@ pub struct LoginCommandArgs {
     /// Shared global flags.
     #[command(flatten)]
     pub parent: ProgramArgs,
+
+    /// Identity provider to sign in with.
+    #[arg(
+        help = "Identity provider to sign in with, by the broker's name for it. Needed only when it has several.",
+        env = "CF_STS_CLI_PROVIDER",
+        long
+    )]
+    pub provider: Option<String>,
 
     /// Print the sign-in link instead of opening a browser.
     #[arg(help = "Print the sign-in link instead of opening a browser.", long)]

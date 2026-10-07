@@ -226,10 +226,6 @@ pub struct PolicyConfig {
     /// services.
     pub issuer: String,
     pub providers: Providers<ProviderConfig>,
-    /// The provider people sign in with for a subject token, by name, which
-    /// the metadata tells clients such as the CLI about. `None` publishes none.
-    #[serde(default)]
-    login: Option<String>,
     /// What profiles that don't say get.
     #[serde(default)]
     defaults: DefaultsConfig,
@@ -245,7 +241,7 @@ impl PolicyConfig {
     /// policy never serves a request.
     pub fn parse(json: &str, account_id: &str) -> Result<Self, String> {
         let mut policy: Self = serde_json::from_str(json).map_err(|err| {
-            format!("must be a JSON policy of {{ version, issuer, providers, login?, defaults?, profiles }}: {err}")
+            format!("must be a JSON policy of {{ version, issuer, providers, defaults?, profiles }}: {err}")
         })?;
         policy.check(account_id)?;
         Ok(policy)
@@ -259,6 +255,9 @@ impl PolicyConfig {
         }
         check_origin(&self.issuer).map_err(|why| format!("issuer {why}"))?;
 
+        for (index, provider) in self.providers.iter_mut().enumerate() {
+            provider.resolve(&format!("providers[{index}]"))?;
+        }
         self.providers.check("providers")?;
         for (index, provider) in self.providers.iter().enumerate() {
             let at = format!("providers[{index}]");
@@ -269,11 +268,6 @@ impl PolicyConfig {
             {
                 return Err(format!("{at}: {} is named twice", provider.name));
             }
-        }
-        if let Some(login) = &self.login
-            && self.login_provider().is_none()
-        {
-            return Err(format!("login names no provider: {login}"));
         }
 
         let defaults = self.defaults.resolved();
@@ -295,12 +289,11 @@ impl PolicyConfig {
         Ok(())
     }
 
-    /// The provider people sign in with, if the policy names one.
-    pub fn login_provider(&self) -> Option<&ProviderConfig> {
-        let login = self.login.as_deref()?;
+    /// The providers people sign in with: those with a `client_id`.
+    pub fn identity_providers(&self) -> impl Iterator<Item = &ProviderConfig> {
         self.providers
             .iter()
-            .find(|provider| provider.name == login)
+            .filter(|provider| provider.client_id.is_some())
     }
 
     /// The provider a token's claims say it comes from, by its `iss`.
@@ -402,7 +395,8 @@ pub struct ProviderConfig {
     pub name: String,
     /// Matched exactly against a token's `iss`.
     pub issuer: String,
-    /// A value the token's `aud` must have.
+    /// A value the token's `aud` must have: its `client_id` if left out.
+    #[serde(default)]
     pub audience: String,
     /// Where its keys are. `None` means its metadata says.
     #[serde(default)]
@@ -414,6 +408,11 @@ pub struct ProviderConfig {
     pub typ: Option<String>,
     /// Every token from it must match one of these, whichever profile it gets.
     pub claims: ClaimRules,
+    /// The OAuth client people sign in to it as, for an ID token whose `aud`
+    /// is this client: the metadata tells clients such as the CLI. `None` for
+    /// a provider only machines get tokens from, such as GitHub Actions.
+    #[serde(default)]
+    pub client_id: Option<String>,
 }
 
 /// What the auth layer verifies a token from it against.
@@ -436,6 +435,27 @@ impl Provider for ProviderConfig {
 }
 
 impl ProviderConfig {
+    /// Fills in the audience from the client ID when it's left out, before
+    /// the providers are checked.
+    fn resolve(&mut self, at: &str) -> Result<(), String> {
+        let Some(client_id) = &self.client_id else {
+            return Ok(());
+        };
+        if client_id.is_empty() {
+            return Err(format!("{at}.client_id must not be empty"));
+        }
+        // An ID token's aud is the client it was issued to: another audience
+        // would refuse every token people sign in for.
+        if self.audience.is_empty() {
+            self.audience = client_id.clone();
+        } else if self.audience != *client_id {
+            return Err(format!(
+                "{at}.audience must be its client_id, {client_id}, or left out"
+            ));
+        }
+        Ok(())
+    }
+
     /// The claims its claim sets and `profile`'s match on, with their values
     /// in `claims`: what's worth writing down about a caller, and copying into
     /// the broker's own tokens. Never secret.
@@ -1168,15 +1188,23 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn names_the_provider_people_sign_in_with() {
-        assert!(parse(&policy()).login_provider().is_none());
+    fn names_the_providers_people_sign_in_with_by_their_client_id() {
+        assert_eq!(parse(&policy()).identity_providers().count(), 0);
 
-        let policy = parse(&with("/login", json!("github")));
-        let login = policy.login_provider().expect("a login provider");
-        assert_eq!(
-            (login.issuer.as_str(), login.audience.as_str()),
-            (ISSUER, BROKER)
-        );
+        let mut both = policy();
+        both["providers"].as_array_mut().unwrap().extend([
+            json!({ "name": "access", "issuer": "https://example.cloudflareaccess.com/cdn-cgi/access/sso/oidc/abc", "client_id": "abc", "claims": [{ "x": "y" }] }),
+            json!({ "name": "okta", "issuer": "https://example.okta.com", "audience": "0oa1", "client_id": "0oa1", "claims": [{ "x": "y" }] }),
+        ]);
+        both["profiles"][0]["provider"] = json!("github");
+        both["profiles"][1]["provider"] = json!("github");
+        let policy = parse(&both);
+        let people: Vec<(&str, &str)> = policy
+            .identity_providers()
+            .map(|p| (p.name.as_str(), p.audience.as_str()))
+            .collect();
+        // The audience is the client ID, whether it's said or not.
+        assert_eq!(people, [("access", "abc"), ("okta", "0oa1")]);
     }
 
     #[test]
@@ -1216,10 +1244,7 @@ pub(super) mod tests {
                 with("/profiles/0/provider", json!("gitlab")),
                 "profiles[0].provider: no provider is named gitlab",
             ),
-            (
-                with("/login", json!("access")),
-                "login names no provider: access",
-            ),
+            (with("/login", json!("github")), "unknown field `login`"),
             (
                 with("/profiles", json!([])),
                 "profiles must name at least one profile",
@@ -1308,6 +1333,22 @@ pub(super) mod tests {
         for (policy, expected) in cases {
             let err = parse_err(&policy);
             assert!(err.contains(expected), "{expected}: {err}");
+        }
+
+        for (field, value, expected) in [
+            (
+                "client_id",
+                json!(""),
+                "providers[0].client_id must not be empty",
+            ),
+            (
+                "client_id",
+                json!("abc"),
+                "providers[0].audience must be its client_id, abc, or left out",
+            ),
+        ] {
+            let err = parse_err(&with(&format!("/providers/0/{field}"), value));
+            assert_eq!(err, expected);
         }
     }
 

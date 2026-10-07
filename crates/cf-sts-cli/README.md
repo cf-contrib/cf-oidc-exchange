@@ -16,13 +16,13 @@ cf-sts login --url https://cf-sts.example.com
 cf-sts exec --url https://cf-sts.example.com --profile example-org/app:tofu-plan -- tofu plan
 ```
 
-It needs a [broker](../cf-sts-api) whose policy names a [`login`](../cf-sts-api#people) provider, and a profile for people.
+It needs a [broker](../cf-sts-api) with a provider people sign in with, one with a [`client_id`](../cf-sts-api#people), and a profile for people.
 
 ## Commands
 
 | Command | |
 |---|---|
-| `cf-sts login [--no-browser]` | Signs in at the identity provider the broker's metadata names, in your browser, and keeps the ID token in the OS keychain under the broker's URL. |
+| `cf-sts login [--provider P] [--no-browser]` | Signs in at an identity provider the broker's metadata lists, in your browser, and keeps the ID token in the OS keychain under the broker's URL. With several, `--provider` picks one; it fails rather than asks. |
 | `cf-sts logout` | Removes it. |
 | `cf-sts whoami [--json]` | Shows who you're signed in as, and until when. Fails when you're not, or the login has expired: `cf-sts whoami -q \|\| cf-sts login`. |
 | `cf-sts exec [--profile P] [--ttl D] -- <command…>` | Exchanges the login for what the profile grants, runs the command with it, and revokes the token when the command exits. |
@@ -32,6 +32,7 @@ It needs a [broker](../cf-sts-api) whose policy names a [`login`](../cf-sts-api#
 | `--url` | `CF_STS_CLI_URL` | Required. The broker's URL. There's no config file. |
 | `--profile` | `CF_STS_CLI_PROFILE` | `exec`: the profile to ask for. Otherwise exactly one profile must match. |
 | `--ttl` | `CF_STS_CLI_TTL` | `exec`: the requested lifetime, capped at the profile's `max_ttl`. |
+| `--provider` | `CF_STS_CLI_PROVIDER` | `login`: the identity provider, by the broker's name for it. Needed only when it has several. |
 | `-q`, `-v` | | Only warnings and errors on stderr, or also details for debugging. |
 
 ## `exec`

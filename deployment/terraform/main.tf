@@ -36,14 +36,13 @@ locals {
       issuer  = local.broker_url
       providers = [
         for provider in var.oidc_providers : {
-          for key, value in merge(provider, { audience = coalesce(provider.audience, local.broker_url) }) :
+          for key, value in merge(provider, { audience = coalesce(provider.audience, provider.client_id, local.broker_url) }) :
           key => value if value != null
         }
       ]
       profiles = var.profiles
     },
     { for key, value in { defaults = local.defaults } : key => value if length(value) > 0 },
-    var.login_provider == null ? {} : { login = var.login_provider },
   )
   defaults    = { for key, value in var.defaults : key => value if value != null }
   policy_json = jsonencode(local.policy)

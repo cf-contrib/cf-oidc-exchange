@@ -751,9 +751,10 @@ mod people {
         let _t = start().await;
         let res = call(Method::GET, "/.well-known/oauth-authorization-server").await;
         assert_eq!(res.status, 200);
+        // Only the providers with a client ID: not GitHub Actions or GitLab.
         assert_eq!(
-            res.json()["login"],
-            json!({ "issuer": issuer("access"), "client_id": CLIENT_ID })
+            res.json()["identity_providers"],
+            json!([{ "name": "access", "issuer": issuer("access"), "client_id": CLIENT_ID }])
         );
     }
 

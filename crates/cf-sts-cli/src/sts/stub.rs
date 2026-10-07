@@ -37,7 +37,9 @@ struct World {
     refusal: Option<(u16, Value)>,
     exchanges: Vec<Fields>,
     revoked: Vec<String>,
-    login: bool,
+    /// The names of the identity providers the metadata lists. All are the
+    /// one at `/idp`.
+    identity_providers: Vec<String>,
     deny: bool,
     /// Claims set on the provider's ID tokens, over its own.
     claims: Value,
@@ -80,7 +82,7 @@ impl Stub {
             refusal: None,
             exchanges: vec![],
             revoked: vec![],
-            login: true,
+            identity_providers: vec!["access".into()],
             deny: false,
             claims: json!({}),
             authorize: Fields::new(),
@@ -137,9 +139,9 @@ impl Stub {
         self.world().revoked.clone()
     }
 
-    /// The metadata names no login.
-    pub fn without_login(&self) {
-        self.world().login = false;
+    /// The metadata lists these identity providers.
+    pub fn identity_providers(&self, names: &[&str]) {
+        self.world().identity_providers = names.iter().map(|n| n.to_string()).collect();
     }
 
     /// The provider sends the person back with `access_denied`.
@@ -190,8 +192,13 @@ async fn metadata(State(state): Shared) -> Json<Value> {
         "response_types_supported": [],
         "grant_types_supported": ["urn:ietf:params:oauth:grant-type:token-exchange"],
     });
-    if world.login {
-        metadata["login"] = json!({ "issuer": format!("{base}/idp"), "client_id": CLIENT_ID });
+    if !world.identity_providers.is_empty() {
+        let providers: Vec<Value> = world
+            .identity_providers
+            .iter()
+            .map(|name| json!({ "name": name, "issuer": format!("{base}/idp"), "client_id": CLIENT_ID }))
+            .collect();
+        metadata["identity_providers"] = json!(providers);
     }
     Json(metadata)
 }

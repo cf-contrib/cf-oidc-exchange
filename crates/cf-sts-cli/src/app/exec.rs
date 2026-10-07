@@ -17,7 +17,7 @@ const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(300);
 /// in as one.
 pub type Open = Box<dyn FnMut(&str) -> Result<()>>;
 
-/// Sign in through the identity provider the broker names.
+/// Sign in through an identity provider the broker lists.
 pub struct LoginCommand {
     /// Store the ID token is kept in.
     pub store: Box<dyn Store>,
@@ -37,10 +37,11 @@ impl LoginCommand {
     /// the signature on every exchange anyway.
     pub async fn execute(&mut self, args: &LoginCommandArgs) -> Result<()> {
         let broker = Broker::new(&BrokerUrl::parse(args.parent.url.as_deref())?);
-        let login = broker.login().await?;
+        let provider = args.provider.as_deref().filter(|p| !p.is_empty());
+        let login = broker.identity_provider(provider).await?;
         debug(format!(
-            "login: issuer {}, client {}",
-            login.issuer, login.client_id
+            "identity provider {}: issuer {}, client {}",
+            login.name, login.issuer, login.client_id
         ));
         let provider = Provider::discover(&login.issuer).await?;
 
@@ -309,7 +310,13 @@ mod tests {
     }
 
     async fn login(stub: &Stub, store: &Shared) -> Result<()> {
-        let ProgramCommand::Login(args) = parse(stub, &["login"]) else {
+        login_with(stub, store, &[]).await
+    }
+
+    async fn login_with(stub: &Stub, store: &Shared, flags: &[&str]) -> Result<()> {
+        let mut line = vec!["login"];
+        line.extend(flags);
+        let ProgramCommand::Login(args) = parse(stub, &line) else {
             unreachable!()
         };
         let mut command = LoginCommand {
@@ -342,6 +349,24 @@ mod tests {
         );
         assert_eq!(token["redirect_uri"], authorize["redirect_uri"]);
         assert!(!token.contains_key("client_secret"));
+    }
+
+    #[tokio::test]
+    async fn login_needs_the_provider_named_when_the_broker_has_several() {
+        let stub = Stub::start().await;
+        stub.identity_providers(&["access", "okta"]);
+        let store = Shared::default();
+        let err = login(&stub, &store).await.unwrap_err().to_string();
+        assert!(
+            err.contains("several identity providers: access, okta"),
+            "{err}"
+        );
+        assert!(stub.sign_in().0.is_empty(), "no sign-in was started");
+
+        login_with(&stub, &store, &["--provider", "okta"])
+            .await
+            .unwrap();
+        assert!(store.load(&stub.url()).unwrap().is_some());
     }
 
     #[tokio::test]
