@@ -223,6 +223,11 @@ components:
           items:
             type: string
           description: '`none`: holding the token is the proof.'
+        login:
+          $ref: '#/components/schemas/Login'
+          description: |-
+            The broker's own extension: where people sign in for a subject token, when the
+            policy names a provider for it. Not secret.
       description: Authorization Server Metadata (RFC 8414 §2).
     BucketCredentials:
       type: object
@@ -324,6 +329,21 @@ components:
               - alg
               - use
       description: "A JWK Set (RFC 7517 §5): the broker's RSA public key, or none without a signing key."
+    Login:
+      type: object
+      required:
+        - issuer
+        - client_id
+      properties:
+        issuer:
+          type: string
+          description: The provider's issuer. Its OpenID Connect Discovery document has the endpoints.
+        client_id:
+          type: string
+          description: "The client to sign in as: the provider's `audience`, since an ID token's `aud` is its client ID."
+      description: |-
+        The OpenID Provider people sign in with, as a public client with PKCE, for an ID token
+        the broker takes: the policy's `login` provider.
     OpenIdProviderMetadata:
       type: object
       required:

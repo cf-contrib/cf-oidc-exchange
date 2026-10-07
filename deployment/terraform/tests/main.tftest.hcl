@@ -150,9 +150,32 @@ run "policy_is_built_from_the_variables" {
   }
 
   assert {
-    condition     = !contains(keys(jsondecode(local.policy_json).providers[0]), "jwks_uri") && !contains(keys(jsondecode(local.policy_json).providers[0]), "typ") && !contains(keys(jsondecode(local.policy_json)), "defaults")
+    condition     = !contains(keys(jsondecode(local.policy_json).providers[0]), "jwks_uri") && !contains(keys(jsondecode(local.policy_json).providers[0]), "typ") && !contains(keys(jsondecode(local.policy_json)), "defaults") && !contains(keys(jsondecode(local.policy_json)), "login")
     error_message = "unset fields should be left out, not null: the broker refuses a null"
   }
+}
+
+run "names_the_login_provider" {
+  command = plan
+
+  variables {
+    login_provider = "github"
+  }
+
+  assert {
+    condition     = jsondecode(local.policy_json).login == "github"
+    error_message = "login_provider should reach the policy as login"
+  }
+}
+
+run "rejects_a_login_provider_that_isnt_a_provider" {
+  command = plan
+
+  variables {
+    login_provider = "access"
+  }
+
+  expect_failures = [var.login_provider]
 }
 
 run "takes_a_providers_own_audience_jwks_uri_typ_and_defaults" {

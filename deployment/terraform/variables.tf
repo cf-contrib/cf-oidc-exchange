@@ -68,6 +68,17 @@ variable "oidc_providers" {
   }
 }
 
+variable "login_provider" {
+  type        = string
+  description = "The provider people sign in with, by name: the broker's metadata names its issuer and client ID (its audience), so the cf-sts CLI needs only the broker's URL. Unset, it names none."
+  default     = null
+
+  validation {
+    condition     = var.login_provider == null || contains([for provider in var.oidc_providers : provider.name], coalesce(var.login_provider, "-"))
+    error_message = "login_provider must name one of oidc_providers."
+  }
+}
+
 variable "profiles" {
   # Untyped: a token policy's resources are flat or nested maps, as Cloudflare
   # takes them, and no one Terraform type holds both. The broker checks them.

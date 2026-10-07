@@ -98,12 +98,13 @@ providers:
     claims:
       - namespace_id: "4000001"              # REQUIRED: pin your group's ID
 
-  - name: com.cloudflare.access              # people, through a Cloudflare Access application
-    issuer: https://example.cloudflareaccess.com
-    audience: <the Access application's AUD tag>
-    jwks_uri: https://example.cloudflareaccess.com/cdn-cgi/access/certs
+  - name: com.cloudflare.access              # people, through an Access for SaaS OIDC application
+    issuer: https://example.cloudflareaccess.com/cdn-cgi/access/sso/oidc/<client-id>
+    audience: <client-id>                    # an ID token's aud is the app's client ID
     claims:
-      - type: app                            # your team's issuer and app's audience are the pin
+      - iss: https://example.cloudflareaccess.com/cdn-cgi/access/sso/oidc/<client-id>   # the app is the pin
+
+login: com.cloudflare.access                 # where people sign in: see People
 
 defaults:
   ttl: 15m     # default 15m
@@ -209,7 +210,11 @@ A profile's `provider` can be left out when the policy has exactly one provider.
 
 ### People
 
-The broker takes OIDC tokens only. For people, use an identity provider that issues them one, such as a [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/identity/authorization-cookie/validating-json/) application: its tokens carry the person's `email`, signed with keys at `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`, the provider's `jwks_uri`. A provider for it is like any other, and its profiles match on those claims. On the command line, `cloudflared access login <app>` and `cloudflared access token -app=<app>` get a person a token to exchange.
+The broker takes OIDC tokens only. For people, use an identity provider that issues them an ID token, such as a [Cloudflare Access for SaaS](https://developers.cloudflare.com/cloudflare-one/applications/configure-apps/saas-apps/generic-oidc-saas/) OIDC application, as a public client with PKCE and the redirect `http://127.0.0.1:8250/callback`. A provider for it is like any other, and its profiles match on its tokens' claims, such as `email`.
+
+Name that provider in `login`, and the broker's [metadata](#http-api) says where people sign in: its issuer, and its `audience` as the client ID, since an ID token's `aud` is the client it was issued to. The [CLI](../cf-sts-cli) reads it, so `cf-sts login --url <broker>` is all a person sets. `login` must name a provider, and the metadata leaves it out without one.
+
+Access for SaaS with Cloudflare as the login method hasn't been tried end to end yet ([#53](https://github.com/cf-contrib/cf-sts/issues/53)): which claims its ID tokens carry, and how long they last.
 
 Keep people's profiles to what they need locally, such as read-only state, and keep `apply` in CI behind `environment: prod` with required reviewers.
 
@@ -362,7 +367,7 @@ These are enforced when the policy loads, so an unsafe policy never serves a req
 |---|---|---|---|
 | `POST` | `/oauth/token` | `subject_token` in the body | [Token exchange](#token-exchange) (RFC 8693) of an OIDC token. What the action uses. |
 | `POST` | `/oauth/revoke` | `token` in the body | [Revoke](#revocation) (RFC 7009) a token the broker minted. What the action's post step uses. |
-| `GET` | `/.well-known/oauth-authorization-server` | public | The broker's Authorization Server Metadata (RFC 8414): its issuer, key and endpoint URLs, for services that verify [its tokens](#tokens-for-other-services). Its endpoints' auth methods are `none`: callers don't authenticate as clients. |
+| `GET` | `/.well-known/oauth-authorization-server` | public | The broker's Authorization Server Metadata (RFC 8414): its issuer, key and endpoint URLs, for services that verify [its tokens](#tokens-for-other-services). Its endpoints' auth methods are `none`: callers don't authenticate as clients. With the policy's `login`, also `login: { issuer, client_id }`, where [people](#people) sign in. |
 | `GET` | `/.well-known/openid-configuration` | public | The same issuer and keys as OpenID Provider Metadata (OpenID Connect Discovery 1.0), for services that only read that. |
 | `GET` | `/.well-known/jwks` | public | The public key the broker signs its own tokens with. Empty without `CF_STS_API_SIGNING_KEY`. |
 | `GET` | `/health/live` | public | `200` whenever the Worker's bindings are valid. |

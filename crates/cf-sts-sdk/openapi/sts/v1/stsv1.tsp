@@ -173,6 +173,24 @@ model AuthorizationServerMetadata {
 
   /** `none`: holding the token is the proof. */
   revocation_endpoint_auth_methods_supported?: string[];
+
+  /**
+   * The broker's own extension: where people sign in for a subject token, when the
+   * policy names a provider for it. Not secret.
+   */
+  login?: Login;
+}
+
+/**
+ * The OpenID Provider people sign in with, as a public client with PKCE, for an ID token
+ * the broker takes: the policy's `login` provider.
+ */
+model Login {
+  /** The provider's issuer. Its OpenID Connect Discovery document has the endpoints. */
+  issuer: string;
+
+  /** The client to sign in as: the provider's `audience`, since an ID token's `aud` is its client ID. */
+  client_id: string;
 }
 
 /** OpenID Provider Metadata (OpenID Connect Discovery 1.0 §3), without an authorization endpoint. */

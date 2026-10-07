@@ -226,6 +226,10 @@ pub struct PolicyConfig {
     /// services.
     pub issuer: String,
     pub providers: Providers<ProviderConfig>,
+    /// The provider people sign in with for a subject token, by name, which
+    /// the metadata tells clients such as the CLI about. `None` publishes none.
+    #[serde(default)]
+    login: Option<String>,
     /// What profiles that don't say get.
     #[serde(default)]
     defaults: DefaultsConfig,
@@ -241,7 +245,7 @@ impl PolicyConfig {
     /// policy never serves a request.
     pub fn parse(json: &str, account_id: &str) -> Result<Self, String> {
         let mut policy: Self = serde_json::from_str(json).map_err(|err| {
-            format!("must be a JSON policy of {{ version, issuer, providers, defaults?, profiles }}: {err}")
+            format!("must be a JSON policy of {{ version, issuer, providers, login?, defaults?, profiles }}: {err}")
         })?;
         policy.check(account_id)?;
         Ok(policy)
@@ -266,6 +270,11 @@ impl PolicyConfig {
                 return Err(format!("{at}: {} is named twice", provider.name));
             }
         }
+        if let Some(login) = &self.login
+            && self.login_provider().is_none()
+        {
+            return Err(format!("login names no provider: {login}"));
+        }
 
         let defaults = self.defaults.resolved();
         check_ttls("defaults", defaults.ttl, defaults.max_ttl)?;
@@ -284,6 +293,14 @@ impl PolicyConfig {
             profile.check(&at, &self.issuer, account_id)?;
         }
         Ok(())
+    }
+
+    /// The provider people sign in with, if the policy names one.
+    pub fn login_provider(&self) -> Option<&ProviderConfig> {
+        let login = self.login.as_deref()?;
+        self.providers
+            .iter()
+            .find(|provider| provider.name == login)
     }
 
     /// The provider a token's claims say it comes from, by its `iss`.
@@ -1151,6 +1168,18 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn names_the_provider_people_sign_in_with() {
+        assert!(parse(&policy()).login_provider().is_none());
+
+        let policy = parse(&with("/login", json!("github")));
+        let login = policy.login_provider().expect("a login provider");
+        assert_eq!(
+            (login.issuer.as_str(), login.audience.as_str()),
+            (ISSUER, BROKER)
+        );
+    }
+
+    #[test]
     fn parses_durations() {
         for (value, ms) in [
             ("90s", 90 * SECOND),
@@ -1186,6 +1215,10 @@ pub(super) mod tests {
             (
                 with("/profiles/0/provider", json!("gitlab")),
                 "profiles[0].provider: no provider is named gitlab",
+            ),
+            (
+                with("/login", json!("access")),
+                "login names no provider: access",
             ),
             (
                 with("/profiles", json!([])),

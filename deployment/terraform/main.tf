@@ -43,6 +43,7 @@ locals {
       profiles = var.profiles
     },
     { for key, value in { defaults = local.defaults } : key => value if length(value) > 0 },
+    var.login_provider == null ? {} : { login = var.login_provider },
   )
   defaults    = { for key, value in var.defaults : key => value if value != null }
   policy_json = jsonencode(local.policy)
