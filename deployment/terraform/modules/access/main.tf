@@ -25,6 +25,10 @@ resource "cloudflare_zero_trust_access_application" "this" {
     allow_pkce_without_client_secret = true
     redirect_uris                    = var.redirect_uris
     scopes                           = var.scopes
+
+    # Access's default, 5m, has people signing in again every five minutes:
+    # its ID tokens expire with its access tokens.
+    access_token_lifetime = var.token_lifetime
   }
 
   policies = [

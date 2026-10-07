@@ -48,7 +48,10 @@ cf-sts exec --url https://cf-sts.example.com --profile infra-admins:tofu-plan --
   proves itself with PKCE (`authorization_code_with_pkce`, with
   `allow_pkce_without_client_secret`), so it has no secret to keep. It
   redirects to `http://127.0.0.1:8250/callback`, where the CLI listens, and
-  grants `openid email profile`. It's hidden from the App Launcher.
+  grants `openid email profile`. It's hidden from the App Launcher. A sign-in
+  lasts `token_lifetime`, 8h by default: Access's ID tokens expire with its
+  access tokens, whose own default, 5m, would have people sign in again every
+  five minutes.
 - **Its policy:** the `emails` you give, and no one else, can sign in.
 - **The `provider` output:** what the broker's `oidc_providers` takes for it.
   Its `issuer` is the application's own,
@@ -86,6 +89,7 @@ one.
 | `team_name` | yes | | The team name, as in `<team_name>.cloudflareaccess.com`. |
 | `emails` | yes | | Who may sign in. At least one. |
 | `name` | no | `cf-sts` | The application's name, shown at sign-in, and its policy's prefix. |
+| `token_lifetime` | no | `8h` | How long a sign-in lasts, `1m` to `24h`. Access's ID tokens expire with its access tokens. |
 | `provider_name` | no | `com.cloudflare.access` | The broker's name for the provider, which profiles name. |
 | `identity_provider_ids` | no | `[]` | The login methods allowed, by ID. Empty allows every one. |
 | `redirect_uris` | no | `["http://127.0.0.1:8250/callback"]` | Where Access may send the code. The CLI's. |
@@ -102,9 +106,9 @@ one.
 
 ## Notes
 
-- Not yet tried end to end against Access
-  ([#53](https://github.com/cf-contrib/cf-sts/issues/53)): which claims its ID
-  tokens carry beyond `email`, and how long they last.
+- Tried end to end against Access, with one-time PIN: its ID tokens carry
+  `email`, `sub`, and the application's `iss`, and with Access's default access
+  token lifetime they expired after 5 minutes.
 - `tofu test` plans the module with a mocked provider: the application's
   settings, the policy, the login methods, and the input checks. Access
   assigns the client ID, so the issuer built from it is Cloudflare's

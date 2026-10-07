@@ -29,6 +29,21 @@ variable "name" {
   default     = "cf-sts"
 }
 
+variable "token_lifetime" {
+  type        = string
+  description = "How long a sign-in lasts: the application's access token lifetime, which its ID tokens follow, so how long until cf-sts login again. Minutes or hours, from 1m to 24h. Access's own default is 5m."
+  default     = "8h"
+
+  validation {
+    # In minutes, 1 to 1440: a malformed value isn't a number of them at all.
+    condition = try(alltrue([
+      for minutes in [tonumber(regex("^([0-9]+)[mh]$", var.token_lifetime)[0]) * (endswith(var.token_lifetime, "h") ? 60 : 1)] :
+      minutes >= 1 && minutes <= 1440
+    ]), false)
+    error_message = "token_lifetime must be minutes or hours, such as 30m or 8h, from 1m to 24h."
+  }
+}
+
 variable "provider_name" {
   type        = string
   description = "The broker's name for the provider, which profiles name as their provider and minted tokens carry."
