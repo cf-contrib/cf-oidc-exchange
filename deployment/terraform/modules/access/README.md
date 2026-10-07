@@ -7,7 +7,7 @@
 
 ```hcl
 module "cf_sts_access" {
-  source = "git::https://github.com/cf-contrib/cf-sts.git//deployment/terraform/modules/access?ref=v0.15.0" # x-release-please-version
+  source = "git::https://github.com/cf-contrib/cf-sts.git//deployment/terraform/modules/access?ref=v0.16.0" # x-release-please-version
 
   account_id = var.account_id
   team_name  = "example" # example.cloudflareaccess.com
@@ -15,7 +15,7 @@ module "cf_sts_access" {
 }
 
 module "cf_sts" {
-  source = "git::https://github.com/cf-contrib/cf-sts.git//deployment/terraform?ref=v0.15.0" # x-release-please-version
+  source = "git::https://github.com/cf-contrib/cf-sts.git//deployment/terraform?ref=v0.16.0" # x-release-please-version
 
   # ...
   oidc_providers = [
