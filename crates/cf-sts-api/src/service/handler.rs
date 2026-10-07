@@ -62,7 +62,7 @@ const PAGE_SIZE: usize = 50;
 
 /// The signing key, read now, or `None` if none is bound: what the broker
 /// signs its own tokens with, and publishes the public half of.
-async fn signing_key(config: &Config) -> Result<Option<SigningKey>, Error> {
+pub(super) async fn signing_key(config: &Config) -> Result<Option<SigningKey>, Error> {
     let misconfigured = |why: String| Error::new(ErrorCode::ServerError, why);
     match config.signing_key().await {
         Ok(Some(pem)) => SigningKey::import(&pem)

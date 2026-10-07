@@ -4,7 +4,12 @@
 # in, what it leaves out, and its size.
 mock_provider "cloudflare" {}
 mock_provider "github" {}
-mock_provider "http" {}
+mock_provider "http" {
+  # The readiness check's probe: the release downloads are overridden below.
+  mock_data "http" {
+    defaults = { status_code = 200 }
+  }
+}
 
 override_data {
   target = data.github_release.this

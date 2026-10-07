@@ -9,8 +9,10 @@
 //!
 //! The health endpoints are the SDK's `HealthHandler`, merged beside them in
 //! the crate root: they're a deployment check, not part of the API, so the
-//! spec doesn't declare them.
+//! spec doesn't declare them. Readiness asks [`health`]'s check, which reads
+//! the secrets.
 
 pub mod config;
 pub mod handler;
+pub mod health;
 pub mod layer;

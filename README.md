@@ -85,7 +85,7 @@ If a stored secret is acceptable to you, it's less to run.
 
 1. **Create the Cloudflare token.** In the Cloudflare dashboard, create an account-owned API token with **Account API Tokens Write** (plus R2 permissions for [buckets](crates/cf-sts-api#buckets)), and store it in Secrets Store.
 2. **Write a policy** that says which repos, branches and environments get which permissions. See the [broker's README](crates/cf-sts-api#policy).
-3. **Deploy the broker** with the [Terraform module](deployment/terraform), on workers.dev (a custom domain is optional), then check that `<url>/.well-known/oauth-authorization-server` returns `200`.
+3. **Deploy the broker** with the [Terraform module](deployment/terraform), on workers.dev (a custom domain is optional), then check that `<url>/health/ready` returns `200`: the policy was accepted and the secrets can be read.
 4. **Add the action** to a job with `permissions: id-token: write`. See the [action's README](action).
 
 ## Development

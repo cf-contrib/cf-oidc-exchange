@@ -5,8 +5,8 @@
 //! Each request reads the Worker's configuration from its bindings, then
 //! serves the SDK's routers over it: the token endpoints, with the auth layer
 //! authenticating every exchange before its handler; the discovery endpoints,
-//! cached publicly; and the health endpoints beside them, with OAuth's rules
-//! for responses over all of it. A
+//! cached publicly; and the health endpoints beside them, ready only while
+//! the secrets can be read, with OAuth's rules for responses over all of it. A
 //! configuration that can't be read, an unset account, a Cloudflare token
 //! that isn't a Secrets Store binding or an invalid policy, fails every
 //! request instead, with a `server_error`.
@@ -31,6 +31,7 @@ use worker::*;
 use crate::service::{
     config::Config,
     handler::{DiscoveryServiceHandler, TokenServiceHandler},
+    health::SecretsCheck,
     layer::{AuthenticateLayer, OAuthResponseLayer, cache_publicly},
 };
 
@@ -61,12 +62,16 @@ async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> Result<HttpResponse
                 .layer(AuthenticateLayer::new(config.clone()))
                 // Merged after the auth layer, so outside it: they're public.
                 .merge(
-                    v1::discovery_service_api_router(DiscoveryServiceHandler::new(config))
+                    v1::discovery_service_api_router(DiscoveryServiceHandler::new(config.clone()))
                         .layer(axum::middleware::map_response(cache_publicly)),
                 )
                 // Not in the spec: they're for whoever deploys the Worker, not
-                // its clients.
-                .merge(v1::HealthHandler::new().into_router())
+                // its clients. Ready only while the secrets can be read.
+                .merge(
+                    v1::HealthHandler::new()
+                        .readiness(SecretsCheck::new(config))
+                        .into_router(),
+                )
                 // Over everything, the health endpoints too.
                 .layer(OAuthResponseLayer)
         }

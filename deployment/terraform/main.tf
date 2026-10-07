@@ -142,3 +142,24 @@ resource "cloudflare_workers_cron_trigger" "this" {
 
   depends_on = [cloudflare_workers_deployment.this]
 }
+
+# At the end of every plan and apply, once the resources above are done, a
+# warning, not an error, when the broker isn't ready: 503 when Secrets Store
+# won't hand it a secret, 500 when a binding or the policy is wrong. Retried a
+# little: a new custom domain takes a moment to resolve.
+check "ready" {
+  data "http" "ready" {
+    url = "${local.broker_url}/health/ready"
+
+    retry {
+      attempts     = 3
+      min_delay_ms = 1000
+      max_delay_ms = 5000
+    }
+  }
+
+  assert {
+    condition     = data.http.ready.status_code == 200
+    error_message = "${local.broker_url}/health/ready answered ${data.http.ready.status_code}: 503 if a secret can't be read, 500 if a binding or the policy is wrong. Workers Logs says why (event unready or misconfigured)."
+  }
+}
