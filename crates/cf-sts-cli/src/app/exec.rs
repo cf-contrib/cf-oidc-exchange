@@ -1,6 +1,6 @@
 use std::{io::Write, time::Duration};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use serde_json::json;
 use tokio::net::TcpListener;
 
@@ -30,11 +30,6 @@ pub struct LoginCommand {
 
 impl LoginCommand {
     /// Execute the LoginCommand with the provided arguments.
-    ///
-    /// The ID token comes straight from the provider's token endpoint over
-    /// TLS, so its issuer, audience, nonce and expiry are checked but not its
-    /// signature, as OpenID Connect Core §3.1.3.7 allows. The broker verifies
-    /// the signature on every exchange anyway.
     pub async fn execute(&mut self, args: &LoginCommandArgs) -> Result<()> {
         let broker = Broker::new(&BrokerUrl::parse(args.parent.url.as_deref())?);
         let provider = args.provider.as_deref().filter(|p| !p.is_empty());
@@ -85,26 +80,13 @@ impl LoginCommand {
                 )
             })??;
         let identity = Identity::parse(provider.redeem(&sign_in, &code).await?)?;
-
-        let claims = identity.claims();
-        if claims.iss != login.issuer {
-            bail!("the provider's ID token is from {}", claims.iss);
-        }
-        if !identity.is_for(&login.client_id) {
-            bail!("the provider's ID token is for another client");
-        }
-        if claims.nonce.as_deref() != Some(sign_in.nonce.as_str()) {
-            bail!("the provider's ID token isn't for this sign-in");
-        }
-        if identity.is_expired() {
-            bail!("the provider's ID token has already expired");
-        }
+        sign_in.check(&identity, &login.issuer)?;
 
         self.store.save(broker.url(), identity.token())?;
         info(format!(
             "signed in as {} (expires {})",
             identity.who(),
-            rfc3339(claims.exp)
+            rfc3339(identity.claims().exp)
         ));
         Ok(())
     }
