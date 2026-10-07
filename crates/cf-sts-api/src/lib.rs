@@ -31,7 +31,7 @@ use worker::*;
 use crate::service::{
     config::Config,
     handler::{DiscoveryServiceHandler, TokenServiceHandler},
-    health::SecretsCheck,
+    health::ConfigCheck,
     layer::{AuthenticateLayer, OAuthResponseLayer, cache_publicly},
 };
 
@@ -66,10 +66,10 @@ async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> Result<HttpResponse
                         .layer(axum::middleware::map_response(cache_publicly)),
                 )
                 // Not in the spec: they're for whoever deploys the Worker, not
-                // its clients. Ready only while the secrets can be read.
+                // its clients. Ready only while the config checks out.
                 .merge(
                     v1::HealthHandler::new()
-                        .readiness(SecretsCheck::new(config))
+                        .readiness(ConfigCheck::new(config))
                         .into_router(),
                 )
                 // Over everything, the health endpoints too.
