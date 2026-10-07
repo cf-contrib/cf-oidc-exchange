@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.14.0](https://github.com/cf-contrib/cf-sts/compare/v0.13.0...v0.14.0) (2026-10-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* nothing takes the old names. The Worker's bindings are CF_STS_API_* (were CF_OIDC_EXCHANGE_API_*). Minted tokens are named cf-sts:…, and revoke and the hourly cleanup no longer touch cf-oidc:… tokens. The R2 token type is urn:cf-sts:params:oauth:token-type:r2_credentials. The Terraform module's worker_name defaults to cf-sts: set worker_name = "cf-oidc-exchange" to keep an existing Worker and its workers.dev URL, the OIDC audience.
+
+### Code Refactoring
+
+* rename the project cf-sts ([#82](https://github.com/cf-contrib/cf-sts/issues/82)) ([147a690](https://github.com/cf-contrib/cf-sts/commit/147a690dad9c0569d2fa48ebc0c365c8ca51571e))
+
 ## [0.13.0](https://github.com/cf-contrib/cf-oidc-exchange/compare/v0.12.0...v0.13.0) (2026-10-06)
 
 

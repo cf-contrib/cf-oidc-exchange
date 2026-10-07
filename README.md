@@ -21,7 +21,7 @@ permissions:
   id-token: write
 
 steps:
-  - uses: cf-contrib/cf-sts@v0.13.0 # x-release-please-version
+  - uses: cf-contrib/cf-sts@v0.14.0 # x-release-please-version
     with:
       url: https://cf-sts.example.com
       profile: example-org/app:ci.deploy
