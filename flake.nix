@@ -1,5 +1,5 @@
 {
-  description = "cf-oidc-exchange - exchange an OIDC identity for short-lived Cloudflare credentials.";
+  description = "cf-sts - exchange an OIDC identity for short-lived Cloudflare credentials.";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -29,7 +29,7 @@
       in
       {
         devShells.default = pkgs.mkShell {
-          name = "cf-oidc-exchange";
+          name = "cf-sts";
           packages = [
             # The action, and the TypeSpec the Worker's API is compiled from.
             pkgs.nodejs_24

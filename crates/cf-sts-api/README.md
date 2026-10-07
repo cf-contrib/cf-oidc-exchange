@@ -1,0 +1,547 @@
+# cf-sts-api
+
+> The broker, the Worker half of [cf-sts](../..), in Rust: verifies an
+> OIDC token from an issuer you trust (GitHub Actions, GitLab CI, Cloudflare
+> Access, …), matches its claims against your policy, and mints a short-lived
+> Cloudflare API token with exactly that profile's permissions, R2 credentials
+> limited to the caller's key prefix, or both. It knows no issuer by name: who
+> may do what is in the policy's claim sets, as in cf-nix-cache.
+
+[![CI](https://github.com/cf-contrib/cf-sts/actions/workflows/ci.yml/badge.svg)](https://github.com/cf-contrib/cf-sts/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](../../LICENSE)
+
+> [!NOTE]
+> **Pre-1.0.** The policy format and the API may still change between minor
+> versions. Version 1 and 2 policies need [migrating](#migration-from-version-2).
+
+```yaml
+version: 3
+issuer: https://cf-sts.example.com    # the broker's URL
+
+providers:
+  - name: com.github.actions
+    issuer: https://token.actions.githubusercontent.com
+    audience: https://cf-sts.example.com
+    claims:
+      - repository_owner_id: "100000001"     # your org's numeric ID, required of every token
+
+profiles:
+  - name: example-org/app:ci.deploy          # the deploy job in example-org/app's ci.yml
+    claims:
+      - repository_id: "200000003"           # example-org/app
+        ref: refs/heads/main
+        environment: prod
+    ttl: 15m
+    token:
+      policies:
+        - permissions: ["Workers Scripts Write"]
+          resources:
+            com.cloudflare.api.account.0123456789abcdef0123456789abcdef: "*"
+```
+
+A job in `example-org/app` (repo `200000003`), on `main`, in the `prod` environment, gets a 15-minute token that can deploy Workers in the account. Any other job is refused with `400` (`invalid_request`).
+
+## Deploy
+
+1. **Create the Cloudflare token.** In the Cloudflare dashboard, create an **account-owned** API token with **Account API Tokens Write**. If any profile has a [`bucket`](#buckets), also give it R2 permissions covering what the buckets delegate. It's the broker's only long-lived credential. This is the one manual step: automating it would need a token that can create tokens. Store it in [Secrets Store](https://developers.cloudflare.com/secrets-store/) so it never passes through your deploy tooling:
+   ```sh
+   wrangler secrets-store secret create <store-id> --name cf-sts-cloudflare-token --scopes workers --remote
+   ```
+2. **Look up numeric IDs.** Pin IDs, not names, because a deleted repo or org name can be re-registered by someone else. For GitHub Actions:
+   ```sh
+   gh api orgs/<org> --jq .id           # the GitHub Actions provider's repository_owner_id
+   gh api repos/<org>/<repo> --jq .id   # a profile's repository_id
+   ```
+3. **Deploy** the released Worker with the [Terraform module](../../deployment/terraform) (`//deployment/terraform?ref=<version>`). It downloads the release (optionally pinned to a checksum), binds your policy to it, and sets up the bindings, the workers.dev URL (or an optional custom domain) and the cron. To deploy a build of your own, build it and point the module's `worker_dir` at it:
+   ```sh
+   worker-build --release   # then worker_dir = ".../crates/cf-sts-api/build"
+   ```
+4. **Check** that `<url>/.well-known/oauth-authorization-server` returns `200` (`https://cf-sts.<subdomain>.workers.dev`, or your custom domain). A `500` means the policy was rejected or a binding is wrong; the reasons are in Workers Logs.
+
+## Bindings
+
+| Binding | Type | Required | Description |
+|---|---|---|---|
+| `CF_STS_API_ACCOUNT_ID` | plain text | yes | Account the Cloudflare token belongs to and tokens are minted in. |
+| `CF_STS_API_POLICY` | plain text | yes | The [policy](#policy), as JSON. A Worker variable holds at most 5 KB. |
+| `CF_STS_API_CLOUDFLARE_TOKEN` | Secrets Store secret | yes | Account-owned token with Account API Tokens Write, plus R2 permissions covering what profiles' buckets delegate. Read on every request, so rotating the secret takes effect without a redeploy. Anything else, such as a plain `wrangler secret`, is refused with `500`. |
+| `CF_STS_API_SIGNING_KEY` | Secrets Store secret | for profiles with an `audience` | RSA private key (at least 2048 bits), as a PKCS#8 PEM, the broker signs [its own tokens](#tokens-for-other-services) with. Without it the broker issues none, publishes no keys, and those profiles fail closed with `500`. Bound as anything else, it's refused with `500`, as the Cloudflare token is. |
+
+The hourly cron (`17 * * * *` in the examples) deletes expired `cf-sts:*` tokens.
+
+The Terraform module builds the policy from its `oidc_providers`, `profiles`
+and `defaults` variables and binds it, so the policy changes with a deploy and
+rolls back with it. Under `wrangler dev`, it's
+the integration tests' policy in `wrangler.toml`.
+
+The bindings are read on every request. An unset account, an invalid policy, or a
+Cloudflare token or signing key outside Secrets Store is a `500` on every route, the health
+endpoints' too, with the first problem in a `misconfigured` log line, such as
+`{"level":"ERROR","event":"misconfigured","message":"CF_STS_API_POLICY: profiles[1].claims must contain at least one claim set"}`.
+
+## Policy
+
+```yaml
+version: 3
+issuer: https://cf-sts.example.com   # REQUIRED: the broker's URL, as its own tokens name it: an origin, no trailing /
+
+providers:
+  - name: com.github.actions                 # GitHub Actions
+    issuer: https://token.actions.githubusercontent.com   # GitHub Enterprise Cloud: .../<enterprise>
+    audience: https://cf-sts.example.com        # what the action asks GitHub for: the broker's URL
+    claims:
+      - repository_owner_id: "100000001"     # REQUIRED: pin your org's numeric ID
+
+  - name: com.gitlab                         # GitLab CI, with id_tokens: { aud: <the broker's URL> }
+    issuer: https://gitlab.com
+    audience: https://cf-sts.example.com
+    claims:
+      - namespace_id: "4000001"              # REQUIRED: pin your group's ID
+
+  - name: com.cloudflare.access              # people, through a Cloudflare Access application
+    issuer: https://example.cloudflareaccess.com
+    audience: <the Access application's AUD tag>
+    jwks_uri: https://example.cloudflareaccess.com/cdn-cgi/access/certs
+    claims:
+      - type: app                            # your team's issuer and app's audience are the pin
+
+defaults:
+  ttl: 15m     # default 15m
+  max_ttl: 1h  # default 1h, at most 24h
+
+profiles:
+  - name: example-org/infra:ci.apply    # the apply job in example-org/infra's ci.yml
+    provider: com.github.actions
+    claims:
+      - repository_id: "200000002"      # example-org/infra
+        ref: refs/heads/main
+        environment: prod               # pair with required reviewers on the environment
+    token:
+      policies:
+        - permissions: ["Zone Write", "Zone WAF Write", "DNS Write"]
+          resources:
+            com.cloudflare.api.account.zone.fedcba9876543210fedcba9876543210: "*" # example.com
+
+  - name: example-org:workers-deploy    # any repo in the org: named for its purpose
+    provider: com.github.actions
+    claims:                             # any one of these sets
+      - repository: "example-org/*"     # a trailing * is allowed on non-ID claims
+        ref: refs/heads/main
+        environment: prod
+      - repository: "example-org/*"
+        ref: refs/heads/release/*
+        environment: prod
+    token:
+      policies:
+        - permissions: ["Workers Scripts Write"]
+          resources:
+            com.cloudflare.api.account.0123456789abcdef0123456789abcdef: "*"
+
+  - name: group/app:deploy              # the deploy job in group/app's .gitlab-ci.yml
+    provider: com.gitlab
+    claims:
+      - project_path: group/app
+        ref_protected: "true"
+    ttl: 5m                             # for everything the profile hands out
+    token:
+      policies:
+        - effect: allow                 # the default; "deny" carves out exceptions
+          permissions: ["Workers Scripts Write"]
+          resources:
+            com.cloudflare.api.account.0123456789abcdef0123456789abcdef: "*"
+
+  - name: example-org:terraform-state   # no token: only R2 credentials
+    provider: com.github.actions
+    claims:
+      - ref: refs/heads/main
+    bucket:
+      name: org-terraform-state
+      permission: object-read-write
+      prefixes: ["{repository_owner_id}/{repository_id}/"]
+
+  - name: infra-admins:tofu-plan        # for people, through Access
+    provider: com.cloudflare.access
+    claims:                             # any one of these people
+      - email: alice@example.com
+      - email: bob@example.com
+    max_ttl: 1h
+    bucket:
+      name: org-terraform-state
+      permission: object-read-only
+```
+
+A profile has a `token`, a `bucket`, or both, for callers with a token from its `provider`. A profile with an `audience` instead issues the broker's own token for that service: see [Tokens for other services](#tokens-for-other-services).
+
+To switch a profile off, for example during an incident, set `enabled: false`. It stays in the policy but never matches, and a request naming it is refused (`invalid_request`).
+
+The broker checks the policy on every request. If it's invalid, the broker fails closed and every request gets `500`. Unknown fields are refused too, so a misspelt one is never silently ignored.
+
+### Providers
+
+A provider is an OIDC issuer you trust to vouch for a caller. `providers` is a list, like `profiles`:
+
+| Field | |
+|---|---|
+| `name` | Required, unique. Profiles name it in `provider`. |
+| `issuer` | Required. The tokens' `iss`, exactly. `https://`, or plain `http://` on `127.0.0.1`, `localhost` or `[::1]` for local development. One provider per issuer. |
+| `audience` | Required. The tokens' `aud` must contain it. Use one only the broker accepts, such as its URL: for GitHub Actions, not GitHub's default `https://github.com/<owner>`, so a token requested for AWS or GCP can't be replayed here. |
+| `jwks_uri` | Optional. Otherwise the keys come from the issuer's metadata: its `/.well-known/openid-configuration`, or, if it has none, its RFC 8414 `/.well-known/oauth-authorization-server`, which must name the same issuer. They never come from a URL in the token. |
+| `typ` | Optional. The `typ` its tokens must have ([RFC 8725 §3.11](https://www.rfc-editor.org/rfc/rfc8725#section-3.11)), such as `at+jwt` to take only another broker's access tokens, so another kind of token its issuer signs can't pass for one. Unset takes any. |
+| `claims` | Required: at least one [claim set](#claim-sets). Every token from this provider must match one, whichever profile it gets. |
+
+`audience` is a field, not one of the `claims`, because it says whether the token is meant for the broker at all: it's checked with the signature, `iss` and expiry, before `claims` pick a profile. Either failing is `400` (`invalid_request`), as RFC 8693 has it for a subject token that's invalid or that the policy doesn't take.
+
+**Pin the tenant.** GitHub Actions, gitlab.com and HCP Terraform issue tokens to anyone's projects, and the broker URL is public. A provider's claim sets must pin yours, by ID: `repository_owner_id` for GitHub Actions, `namespace_id` or `project_id` for gitlab.com, `terraform_organization_id` for HCP Terraform. The broker requires a claim set on every provider, but it can't tell which claims pin a tenant: that's yours to get right.
+
+A profile's `provider` can be left out when the policy has exactly one provider. Tokens are RS256.
+
+### Claim sets
+
+`claims`, on a provider or a profile, is a list of claim sets, as in cf-nix-cache. A token matches the list when it matches **any** set, and a set when it matches **all** its claims:
+
+- A token gets a profile when it matches one of its provider's sets **and** one of the profile's.
+- A claim's value is one pattern: a string, a number or a boolean. Numbers and booleans compare as written in JSON, so unquoted YAML IDs work.
+- A pattern can end in one `*` after a prefix, such as `example-org/*` or `refs/heads/release/*`, and then matches any value starting with that prefix, including across `/`. A `*` anywhere else, or on its own, is refused when the policy loads. ID claims (`*_id`) must be exact.
+- A claim that's a list in the token (`groups`, `amr`) matches if any of its entries does. A claim missing from the token never matches.
+- Any claim the issuer puts in its tokens can be matched. GitHub Actions: `repository`, `repository_id`, `ref`, `environment`, `job_workflow_ref`, `runner_environment`, and so on. GitLab CI: `project_path`, `namespace_id`, `ref_protected`, and so on.
+- If the request names a `profile`, that profile must match. Otherwise exactly one profile must match. Both failures are `invalid_request`, and the description says which.
+- A token only matches profiles for the provider whose issuer it names. Naming another provider's profile is refused (`invalid_request`).
+
+### People
+
+The broker takes OIDC tokens only. For people, use an identity provider that issues them one, such as a [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/identity/authorization-cookie/validating-json/) application: its tokens carry the person's `email`, signed with keys at `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`, the provider's `jwks_uri`. A provider for it is like any other, and its profiles match on those claims. On the command line, `cloudflared access login <app>` and `cloudflared access token -app=<app>` get a person a token to exchange.
+
+Keep people's profiles to what they need locally, such as read-only state, and keep `apply` in CI behind `environment: prod` with required reviewers.
+
+### Migration from version 2
+
+Version 1 and 2 policies are refused (`500`, with `version must be 3` in the log). Move them over:
+
+| Version 2 | Version 3 |
+|---|---|
+| `version: 2` | `version: 3` |
+| `claims: { a: x, b: y }` on a provider or profile | `claims: [{ a: x, b: y }]`, a list of claim sets |
+| a claim's list of values, `ref: [main, release/*]` | one claim set per value: `claims: [{ ref: main }, { ref: release/* }]` |
+| the provider for `https://github.com` (people's GitHub tokens), `repository_permission`, `team_id` | gone: use an OIDC identity provider for people, such as [Cloudflare Access](#people) |
+| a provider without `claims` for an issuer the broker didn't know | at least one claim set, on every provider |
+
+### Permissions
+
+`permissions` are permission-group names as the [permission groups API](https://developers.cloudflare.com/api/resources/accounts/subresources/tokens/subresources/permission_groups/) returns them, e.g. `"DNS Write"` or `"Workers Scripts Write"`. The broker looks up their IDs with the Cloudflare token when it mints a token. To see the full list:
+
+```sh
+curl -H "Authorization: Bearer <token>" \
+  "https://api.cloudflare.com/client/v4/accounts/<account_id>/tokens/permission_groups"
+```
+
+- An unknown name fails the mint with `500` (`server_error`). It's never silently dropped.
+- If a name exists at several scopes, the broker uses the one matching the resources' scope (account, zone or R2 bucket).
+
+### Resources
+
+`resources` is Cloudflare's own token resources format, passed through as written. Common forms:
+
+| Grants | `resources` |
+|---|---|
+| The whole account | `com.cloudflare.api.account.<account_id>: "*"` |
+| One zone | `com.cloudflare.api.account.zone.<zone_id>: "*"` |
+| Every zone in the account | `com.cloudflare.api.account.<account_id>: { com.cloudflare.api.account.zone.*: "*" }` |
+
+Keys must start with `com.cloudflare.`, and account keys must name `CF_STS_API_ACCOUNT_ID`. A policy's `resources` are all `"*"` values or all nested maps, as Cloudflare takes them. Add a comment with the zone's name next to each zone ID so reviewers can tell them apart. With the Terraform module, write `"com.cloudflare.api.account.${var.account_id}"`.
+
+### Buckets
+
+A profile's `bucket` gets the job [temporary R2 credentials](https://developers.cloudflare.com/r2/api/s3/temporary-credentials/) for that bucket, optionally limited to key prefixes built from the job's claims. One shared bucket can then hold every repo's Terraform state, with each repo limited to its own prefix:
+
+```yaml
+    bucket:
+      name: org-terraform-state           # a valid R2 bucket name
+      permission: object-read-write       # or object-read-only; admin levels aren't allowed
+      prefixes: ["github.com/{repository}/"]
+```
+
+- **One bucket per profile,** so the action always exports its credentials under the same names, `CLOUDFLARE_R2_*`. A job that needs two buckets uses two profiles, in two jobs.
+
+- **Placeholders** are `{claim}`, not `${claim}`, so HCL leaves them alone. Any claim can fill one: `{repository}` from GitHub Actions, `{project_path}` from GitLab, `{email}`… They're filled in from the verified token, never from the request.
+- **Prefixes** must end in `/`, so `github.com/org/site/` doesn't also cover `github.com/org/site-old/`. They can't start with `/` or contain `*`, `..`, empty or `.` segments, or control characters, and each placeholder must be a whole path segment (`tfstate/{repository_id}/`, not `tfstate-{repository_id}/`), so two repos can never end up with the same prefix. These are checked when the policy loads.
+- **Claims** filling a placeholder must be a string or a number made of path segments of `A-Z`, `a-z`, `0-9`, `.`, `_` and `-`. A value can span several segments (`example-org/app`) only when it's the template's one placeholder; with several, each must fill exactly one, so two callers can never fill a template to the same prefix. The filled-in prefix is checked again. Otherwise the request is refused (`invalid_request`), before anything is minted.
+- **Without `prefixes`** the credentials cover the whole bucket.
+- **Lifetime:** the profile's `ttl`, capped at its `max_ttl`, with the request's `ttl` still honoured. That's the same as the token's, in a profile with both. The credentials **can't be revoked early**, so keep TTLs short.
+- **Parent token:** the Cloudflare token calls `temp-access-credentials` with its own ID as the parent, as in [Cloudflare's example](https://developers.cloudflare.com/r2/examples/authenticate-r2-temp-credentials/), and the credentials can't exceed its permissions. Give it **Workers R2 Storage Write** (R2's "Admin Read & Write"), which is known to work. Cloudflare asks for "at least the permissions you plan to delegate", so an R2 permission limited to the profiles' buckets may be enough, but that hasn't been tried. Without an R2 permission the endpoint refuses the token with code `10000`, which the broker reports as `503` (`temporarily_unavailable`; `Cloudflare: temporaryCredentials.create: returned 403` in the audit log). Admin Read & Write is account-wide, but it doesn't widen what a leaked Cloudflare token can do: with Account API Tokens Write it could already mint itself a token with any R2 permission. The policy still only hands out `object-*` permissions. Revoking or rolling the Cloudflare token cuts off every credential issued from it within seconds, including those of jobs running at that moment. That's the emergency switch.
+- **With both** `token` and `bucket`, the broker mints the token first. If the credentials then can't be created, it deletes the token and replies `503`.
+
+**Renamed and reused repo names.** A prefix built from `{repository}` moves when the repo is renamed, and a deleted repo's name can be taken by a new repo in the org, which would then get the old repo's state. `{repository_owner_id}/{repository_id}/` doesn't change on a rename and is never reused.
+
+**What `bucket` doesn't cover:** admin operations such as creating or listing buckets. For those, grant R2 permissions in the profile's `token` and derive S3 credentials from `CLOUDFLARE_API_TOKEN` in a step: the access key ID is the token's ID, and the secret is the SHA-256 of the token value. Buckets in a jurisdiction (`eu`, `fedramp`) need a different endpoint than the one the broker returns.
+
+### Tokens for other services
+
+A profile with `audience: <service URL>` gives the caller a token the broker signs itself, for another service that trusts the broker, such as [cf-nix-cache](https://github.com/cf-contrib/cf-nix-cache). It has no `token` or `bucket`: who may use the service is decided by the profile's `claims`, like any other.
+
+```yaml
+  - name: example-org/app:ci.build
+    provider: com.github.actions
+    audience: https://cf-nix-cache.example.com
+    claims:
+      - repository_id: "200000003"      # example-org/app
+        ref: refs/heads/main
+    ttl: 15m
+```
+
+The caller asks for it with [`audience`](#token-exchange) set to the service's URL, and gets a JWT access token the broker signed, as RFC 9068 has it: `typ: at+jwt`, so a service can tell it from any other JWT, and `alg: RS256`, which verifiers support by default.
+
+- `iss` is the broker's URL (the policy's `issuer`), `aud` the service, `sub` the caller's `sub` from its issuer (`<provider>:unknown` if its token has none), and `client_id` the provider's name: the caller doesn't authenticate as a client, so the provider that vouched for it stands in.
+- `provider` and `profile` name where the caller came from and what allowed it, `jti` is unique, and `iat`, `nbf` and `exp` are when it was issued, valid from and until.
+- Verified claims are copied under their issuer's names, so a service can match on them: every claim the profile's or its provider's claim sets name. Nothing else, so an issuer's other claims (such as GitLab's `user_email`) stay behind.
+- It lasts the profile's `ttl`, but never past the caller's OIDC token, which lasts minutes. Exchange again for a fresh one: there are no refresh tokens. A subject token already past its `exp`, though accepted within the clock tolerance, gets nothing (`invalid_request`, `the subject token has expired`).
+
+Services find the public key at [`/.well-known/jwks`](#http-api), or through the broker's metadata: RFC 8414's at [`/.well-known/oauth-authorization-server`](#http-api), or OpenID Connect Discovery's at [`/.well-known/openid-configuration`](#http-api) for services that only read that, such as AWS IAM, Google Cloud Workload Identity Federation and Vault. They should check `typ` (`at+jwt`), `iss`, `aud`, `exp` and the `RS256` algorithm, as RFC 9068 §4 says. The broker isn't a full OpenID Provider: tokens come from exchange only, so, as for GitHub's and Kubernetes' issuers, its discovery document has no authorization endpoint. With cf-sts-core, a service names the broker as a provider with `typ` `at+jwt`.
+
+The key is an RSA private key, at least 2048 bits, in Secrets Store, bound as `CF_STS_API_SIGNING_KEY` (`signing_key_secret` in the [Terraform module](../../deployment/terraform)):
+
+```sh
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out signing-key.pem
+wrangler secrets-store secret create <store-id> --name cf-sts-signing-key --scopes workers   # paste the PEM
+rm signing-key.pem
+```
+
+Its `kid` is the public key's thumbprint, so replacing the secret rotates the key. Tokens signed with the old key stop verifying once services refetch the JWKS, and they're short-lived anyway.
+
+### TTL and names
+
+- Durations look like `90s`, `15m`, `1h`, `1h30m`: each unit once, largest first.
+- `ttl` and `max_ttl` go on the profile, and apply to its token and bucket alike.
+- A requested `ttl` above the profile's `max_ttl` is clamped. Below `1m`, or unparseable, is a `400`. In the policy, a `ttl` below `1m` is refused when it loads.
+- Provider names are 1–64 characters of `A-Z`, `a-z`, `0-9`, `_`, `.` and `-`, starting with a letter or digit, and unique. They go into minted tokens' names, which `:` separates, and into `client_id`.
+- Profile names are 1–255 characters of `A-Z`, `a-z`, `0-9`, `_`, `.`, `:`, `/` and `-`, starting with a letter or digit, and unique, so a name can say whose the profile is: `example-org/app:ci.deploy`. See [Naming](#naming).
+- Minted tokens are named `cf-sts:<provider>:<sub>`, at most 120 characters.
+
+### Naming
+
+These are recommendations: the broker enforces only the characters and the length.
+
+**Profiles: `<who>:<what>`.** `<who>` is the narrowest caller the profile's claims pin, written as its issuer writes it:
+
+| Caller | `<who>` | From the claim |
+|---|---|---|
+| A GitHub Actions repo | `<owner>/<repo>` | `repository` |
+| Every repo in a GitHub org (`repository: "example-org/*"`) | `<owner>` | `repository_owner` |
+| A GitLab project | `<group>/<project>` | `project_path` |
+| People through Cloudflare Access | a team or role, such as `infra-admins` | the profile's `email` set |
+
+`<what>` is the job, for a CI job: `<workflow>.<job>`, the workflow file's name without `.yml`, then the job's id. GitHub job ids can't contain `.`, so the last `.` separates the job even when the workflow's name has dots in it. GitLab has a single `.gitlab-ci.yml`, so it's just `<job>`. For an org-wide profile, or one for people, it's the purpose, such as `workers-deploy` or `tofu-plan`.
+
+| Profile | Name |
+|---|---|
+| The `deploy` job in `example-org/app`'s `ci.yml` | `example-org/app:ci.deploy` |
+| Workers deploys from `main` in any org repo | `example-org:workers-deploy` |
+| The GitLab `deploy` job in `group/app` | `group/app:deploy` |
+| `tofu plan` for people, through Access | `infra-admins:tofu-plan` |
+
+- **Name the job, not the tool:** `ci.apply`, not `ci.tofu-apply`. When the job is renamed, rename the profile with it.
+- **One job, one profile.** A job that needs two buckets uses two profiles, in two jobs.
+- **The name enforces nothing; the claims do.** Derive the name from the claims, so the two can't drift. In Terraform, build `name`, `repository_id` and `workflow_ref` from the same locals.
+
+**Providers: the issuing service, reverse-DNS.** `com.github.actions`, `com.gitlab`, `com.cloudflare.access`. That reads like the policy's resource keys (`com.cloudflare.api.account.<id>`) and, in the broker's own tokens, like the client identifier it is in `client_id`. A longer name takes more of a minted token's 120 characters, `cf-sts:<provider>:<sub>`, which is cut to fit.
+
+**Bucket prefixes: the caller's path, under its issuer's host.** `github.com/{repository}/`, `gitlab.com/{project_path}/`. Such a prefix is readable, and can't collide across providers. But it moves when the repo is renamed or transferred, and a deleted repo's name can be reused: where that matters, use IDs, as the policy above does (see [Buckets](#buckets)).
+
+### Guardrails
+
+These are enforced when the policy loads, so an unsafe policy never serves a request:
+
+1. **Every provider is pinned.** A provider must list at least one claim set, and a token must match one of them whatever profile it asks for. Pin the tenant there for issuers that give tokens to anyone's projects (see [Providers](#providers)).
+2. **Patterns stay narrow.** ID claims can't use `*`, and other claims only as a single trailing `*` after a prefix, so a pattern can't match everything (`*`) or anything ending in a value (`*main`).
+3. **No token-management permissions.** Granting (`effect: allow`) any permission group whose name contains `API Tokens`, in any case, is rejected, so a job can't turn its short-lived token into a long-lived one. A `deny` may name one.
+4. **TTLs are capped.** `max_ttl` is at most 24h, and `ttl` can't exceed it.
+5. **Audiences are kept apart.** A request only matches profiles for its `audience`. A profile for another service can't hand out Cloudflare credentials, and its audience must be a bare origin other than the broker's own.
+
+## HTTP API
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/oauth/token` | `subject_token` in the body | [Token exchange](#token-exchange) (RFC 8693) of an OIDC token. What the action uses. |
+| `POST` | `/oauth/revoke` | `token` in the body | [Revoke](#revocation) (RFC 7009) a token the broker minted. What the action's post step uses. |
+| `GET` | `/.well-known/oauth-authorization-server` | public | The broker's Authorization Server Metadata (RFC 8414): its issuer, key and endpoint URLs, for services that verify [its tokens](#tokens-for-other-services). Its endpoints' auth methods are `none`: callers don't authenticate as clients. |
+| `GET` | `/.well-known/openid-configuration` | public | The same issuer and keys as OpenID Provider Metadata (OpenID Connect Discovery 1.0), for services that only read that. |
+| `GET` | `/.well-known/jwks` | public | The public key the broker signs its own tokens with. Empty without `CF_STS_API_SIGNING_KEY`. |
+| `GET` | `/health/live` | public | `200` whenever the Worker's bindings are valid. |
+| `GET` | `/health/ready` | public | `200` whenever the Worker's bindings are valid. It doesn't read the secrets: a route that needs them fails closed with `500`, with why in Workers Logs. |
+
+Bodies are form-encoded and at most 16 KiB; anything else, such as a JSON body, is `400` (`invalid_request`). Every response is `Cache-Control: no-store`, except the discovery endpoints' `200`s, which are `public, max-age=300`.
+
+### Token exchange
+
+`POST /oauth/token` is an [RFC 8693](https://www.rfc-editor.org/rfc/rfc8693) token exchange, form-encoded. The token goes in the body, and `subject_token_type` says whose it is. [`stsv1.yaml`](../cf-sts-sdk/openapi/sts/v1/stsv1.yaml) is the contract.
+
+```sh
+curl -sS https://cf-sts.example.com/oauth/token \
+  -d grant_type=urn:ietf:params:oauth:grant-type:token-exchange \
+  -d subject_token="$GITHUB_OIDC_TOKEN" \
+  -d subject_token_type=urn:ietf:params:oauth:token-type:id_token \
+  -d profile=example-org:workers-deploy
+```
+
+| Parameter | |
+|---|---|
+| `grant_type` | `urn:ietf:params:oauth:grant-type:token-exchange` |
+| `subject_token` | An OIDC token from a provider's issuer |
+| `subject_token_type` | `urn:ietf:params:oauth:token-type:id_token` or `urn:ietf:params:oauth:token-type:jwt` |
+| `audience` | Optional. `https://api.cloudflare.com`, the default, for Cloudflare credentials; or a service's URL for [the broker's own token](#tokens-for-other-services) |
+| `requested_token_type` | Optional. For Cloudflare, `urn:ietf:params:oauth:token-type:access_token` or `urn:cf-sts:params:oauth:token-type:r2_credentials`; for a service, `urn:ietf:params:oauth:token-type:jwt` or `…:access_token` |
+| `profile` | Optional. Profile to use; if omitted, exactly one profile must match |
+| `ttl` | Optional. Requested lifetime such as `10m` or `1h`, clamped to the profile's `max_ttl` |
+
+Delegation (`actor_token`), audiences no profile is for, and other token types are refused with `400`, not ignored.
+
+The response has the standard fields plus the broker's own:
+
+```json
+{
+  "access_token": "…",
+  "issued_token_type": "urn:ietf:params:oauth:token-type:access_token",
+  "token_type": "Bearer",
+  "expires_in": 900,
+  "expires_at": 1790597700,
+  "token_id": "…",
+  "account_id": "0123456789abcdef0123456789abcdef",
+  "profile": "example-org:workers-deploy",
+  "bucket": { "name": "…", "access_key_id": "…", "secret_access_key": "…", "session_token": "…", "prefixes": ["…"], "endpoint": "…", "expires_on": "…" }
+}
+```
+
+`requested_token_type` doesn't choose what's issued: the profile does. It only refuses a type the audience can't have (`invalid_target`), so a profile with a `token` and a `bucket` answers `access_token` even if `r2_credentials` was asked for.
+
+`bucket` is there when the profile has one. A profile with only a bucket has no bearer token, so it returns no `access_token` or `token_id`, with `issued_token_type` `urn:cf-sts:params:oauth:token-type:r2_credentials` and `token_type` `N_A`. For a service's audience, `access_token` is the broker's JWT access token, `issued_token_type` is `urn:ietf:params:oauth:token-type:access_token` (or `…:jwt`, if that's what `requested_token_type` asked for), and there's no `token_id`, `account_id` or `bucket`.
+
+Errors are the same as on every route.
+
+### Revocation
+
+`POST /oauth/revoke` is an [RFC 7009](https://www.rfc-editor.org/rfc/rfc7009) revocation, form-encoded, with the token in `token` (`token_type_hint`, if sent, must be `access_token`, and is otherwise ignored). Holding the token is the proof. It answers `200` with no body whether the token was revoked, was already gone, was never valid, or isn't one the broker minted (one not named `cf-sts:*`, including the Cloudflare token), which it never deletes: to the broker that's an invalid token, which RFC 7009 answers with `200` too. The audit log says which (`token.revoke`, `reason: not_minted`).
+
+```sh
+curl -sS https://cf-sts.example.com/oauth/revoke -d token="$CLOUDFLARE_API_TOKEN"
+```
+
+**Errors:** OAuth errors (RFC 6749 §5.2), `{ "error": "<code>", "error_description": "<what went wrong>" }`, as RFC 8693 and RFC 7009 have them:
+
+- `400 invalid_request`: a malformed request, a subject token that's invalid, or one the policy doesn't take (RFC 8693 §2.2.2)
+- `400 invalid_target`: an `audience` the broker issues nothing for, or can't issue the requested token type for (RFC 8693)
+- `400 unsupported_grant_type`: a `grant_type` other than token exchange
+- `500 server_error`: the broker is misconfigured or failed
+- `503 temporarily_unavailable`: Cloudflare or the subject token's issuer failed
+
+For the caller's own mistakes (400) the description says what was wrong, for example `no profile matches the token`, `profiles a, b all match the token: name one`, `unknown profile x`, `profile example-org:workers-deploy isn't for provider com.gitlab`, `profile x is disabled` or `profile x doesn't match the token`. That tells a caller with a valid token which profile names exist. For the broker's faults (500, 503) the description is generic, and the logs say why.
+
+**Contract:** [`stsv1.tsp`](../cf-sts-sdk/openapi/sts/v1/stsv1.tsp), in TypeSpec, compiled to the OpenAPI document [`stsv1.yaml`](../cf-sts-sdk/openapi/sts/v1/stsv1.yaml). The Worker's types, server and router are generated from it, and requests that don't fit it are refused (`400`) before any handler runs. The action's [`api.ts`](../../action/src/api.ts) mirrors it.
+
+## Security
+
+| Threat | Mitigation |
+|---|---|
+| Forged or tampered JWT | Signature checked against the issuer's JWKS (RS256 only), plus `iss`, `aud`, `exp` and `nbf` with 60s tolerance |
+| A repo outside your org asks for a token | Every provider must list claim sets; pin your tenant's ID there |
+| A token from an issuer you don't trust | Only issuers listed as providers are accepted, by exact `iss`, with keys from that issuer's own metadata or `jwks_uri` |
+| Deleted repo or org re-registered by an attacker | Pin numeric IDs, not names |
+| Malicious PR code gets a prod token | Match `ref: refs/heads/main` and `environment: prod`, with required reviewers on the environment. Fork PRs don't get `id-token: write` on `pull_request`. Don't write profiles that match `event_name: pull_request_target`. |
+| Stolen minted token | 15m default TTL, revoked at job end, expired tokens deleted hourly |
+| Stolen R2 credentials | Limited to one bucket and the repo's prefixes, and short-lived. They can't be revoked one by one; rolling the Cloudflare token revokes all of them |
+| One repo reaches another's R2 keys | Prefixes must end in `/`, placeholders fill whole segments from verified claims with a fixed character set, and both the template and the result are checked. Prefer ID-based prefixes |
+| Stolen JWT replayed | Short JWT lifetime and a custom audience |
+| Stolen broker-issued token | Valid for one service (`aud`), and never longer than the job's OIDC token it came from |
+| Signing key exfiltrated | Kept in Secrets Store like the Cloudflare token. Replace the secret to rotate it: the new key gets a new `kid`, and services stop accepting the old one once they refetch the JWKS |
+| One caller reaches another's R2 keys through a prefix claim | A value spans path segments only as a template's one placeholder, and every filled-in prefix is checked again |
+| Cloudflare token exfiltrated | Kept in Secrets Store, so it isn't in Terraform state or CI. Only code running in the Worker can read it. Restrict who can deploy Workers in the broker's account, rotate the Cloudflare token, and consider a dedicated account per trust domain. |
+| Token flooding | Only callers the policy allows can mint. Tokens are short-lived, revoked at job end, and cleaned up hourly. There's no rate limit yet (see [Limitations](#limitations)). |
+
+### Audit log
+
+The broker logs with [`tracing`](https://docs.rs/tracing), as JSON lines that Workers Logs indexes by field. Every mint, issue and denial is one line, with its `event` and, once the token is verified, the caller's `provider`, their token's `sub`, and in `claims` the claims the policy's claim sets for them name. Token values, R2 secrets and JWTs are never logged:
+
+```json
+{"level":"INFO","event":"token.mint","provider":"com.github.actions","profile":"example-org:workers-deploy","sub":"repo:example-org/app:environment:prod","claims":"{\"environment\":\"prod\",\"ref\":\"refs/heads/main\",\"repository\":\"example-org/app\",\"repository_owner_id\":\"100000001\"}","token_id":"<token-id>","expires_at":1790961140}
+```
+
+`claims` is JSON text, since which claims a policy names is up to the policy. `expires_at` is in seconds since the epoch, as the exchange's response has it.
+
+R2 credentials are `r2.issued`, with the bucket, the filled-in prefixes and the permission:
+
+```json
+{"level":"INFO","event":"r2.issued","provider":"com.github.actions","profile":"example-org:terraform-state","sub":"repo:example-org/app:ref:refs/heads/main","claims":"{\"ref\":\"refs/heads/main\",\"repository_owner_id\":\"100000001\"}","bucket":"org-terraform-state","prefixes":"[\"100000001/200000003/\"]","permission":"object-read-write","expires_at":1790961140}
+```
+
+A token for another service is `token.issue`, with the audience and the token's `jti`, never the token:
+
+```json
+{"level":"INFO","event":"token.issue","provider":"com.github.actions","profile":"example-org/app:ci.build","sub":"repo:example-org/app:ref:refs/heads/main","claims":"{\"ref\":\"refs/heads/main\",\"repository_owner_id\":\"100000001\"}","audience":"https://cf-nix-cache.example.com","jti":"<uuid>","expires_at":1790960440}
+```
+
+Denials are `token.deny`, a warning, with the response's `error`, and its `error_description` as `message`. For the broker's own faults, the message is the full one the caller doesn't get:
+
+```json
+{"level":"WARN","event":"token.deny","provider":"com.github.actions","profile":"example-org:workers-deploy","sub":"repo:example-org/app:environment:prod","claims":"{\"repository\":\"example-org/app\",\"repository_owner_id\":\"100000001\"}","error":"temporarily_unavailable","message":"Cloudflare: tokens.create: returned 500"}
+```
+
+- **Request problems** (`invalid_request`, `invalid_target`, `unsupported_grant_type`): what the contract refuses, such as another `grant_type`, `actor_token`, a missing field or a JSON body; an invalid subject token, or one from an issuer no provider is for; a `ttl` or `audience` that doesn't fit.
+- **The policy didn't allow it** (`invalid_request` too): the token matches none of its provider's claim sets, no profile matches, several do, the named one doesn't, a claim can't fill a bucket prefix.
+- **Configuration or upstream faults** (`server_error`, `temporarily_unavailable`): a secret that can't be read, an unknown permission name, an issuer's keys, Cloudflare failing.
+
+The other events:
+
+| `event` | Fields | |
+|---|---|---|
+| `token.revoke` | `token_id`, or `reason` | A revocation: the token deleted, or `already_gone`, `not_minted` (the token isn't the broker's), `discarded` (deleted because the profile's R2 credentials failed) or `discard_failed` |
+| `token.cleanup` | `token_id`, `name`, `expires_at` | The cron deleted an expired token |
+| `cleanup.done` | `deleted` | The cron's run, and how many it deleted |
+| `cleanup.failed` | `error`, `message` | The cron's run failed |
+| `misconfigured` | `message` | The bindings or the policy are invalid: the first problem |
+
+## Limitations
+
+- **One account per broker.** Tokens are minted in `CF_STS_API_ACCOUNT_ID` only. Deploy one broker per account.
+- **RS256 only, one provider per issuer.** Issuers that sign with another algorithm (such as ES256) aren't supported yet. To serve several GitHub orgs, give the provider a claim set per org: `claims: [{ repository_owner_id: "100000001" }, { repository_owner_id: "100000002" }]`.
+- **OIDC tokens only.** People need an identity provider that issues them one, such as [Cloudflare Access](#people). Rules on a person's role in a GitHub repo can't be expressed: their tokens don't carry it.
+- **The tenant pin is yours to get right.** The broker requires every provider to have claim sets, but knows no issuer's tenant claim by name.
+- **One signing key at a time.** Rotating it can't publish the old and new keys side by side, so a token signed just before the rotation fails at a service that has already refetched the JWKS. They're short-lived, and the caller can exchange again.
+- **No JWT replay cache.** A stolen JWT can be exchanged again until it expires. The custom audience and its short lifetime limit this.
+- **Resource IDs aren't checked up front.** Apart from the account check, a wrong zone ID is only caught when Cloudflare rejects the mint (`503`).
+- **Permission names can change.** Cloudflare can rename a permission group. Profiles using the old name fail closed (`500`) until the policy is updated.
+- **Secrets Store is required, and in open beta.** The Cloudflare token is only accepted from Secrets Store, so a plain Worker secret can't end up in Terraform state or deploy tooling. Accounts without Secrets Store can't run the broker yet.
+- **R2 credentials can't be revoked early.** They last their TTL; only rolling the Cloudflare token cuts them all off. One bucket per grant, and only buckets outside a jurisdiction.
+- **No rate limit.** A workflow the policy allows can mint as often as it runs. Each token expires within minutes, is revoked at job end and cleaned up hourly, but a compromised workflow could still create many tokens at once. Cloudflare's rate-limit binding was tried and didn't enforce a 30-per-minute limit against ~85 requests a minute, so it was left out. An exact per-repository limit (e.g. a Durable Object) may come later.
+
+## Code
+
+The crate is laid out as cf-nix-cache's Worker is:
+
+| | |
+|---|---|
+| `src/lib.rs` | The start, fetch and scheduled events: the JSON logger, the configuration, then the SDK's two routers over it, the token endpoints under the auth layer and the discovery endpoints under `cache_publicly`, and the health endpoints, all under `OAuthResponseLayer`. |
+| `src/service/config.rs` | The bindings, read in `Config::from_env` only, and the policy's format: providers, profiles, claim sets, bucket prefixes, and the guardrails parsing checks. |
+| `src/service/layer.rs` | Exchange auth, as a tower layer over [`cf-sts-core`](../cf-sts-core): the subject token's provider by `iss`, RS256 against the issuer's keys with WebCrypto, the standard claims and the provider's claim sets. And `OAuthResponseLayer`, OAuth's rules for every response: the generated validation's refusals as `invalid_request`, and `Cache-Control: no-store`; `cache_publicly`, the discovery endpoints' `public, max-age=300`. |
+| `src/service/handler.rs` | The generated API's implementation, a handler per trait. `TokenServiceHandler`: the exchange (profiles, Cloudflare tokens and R2 credentials through [cloudflare-rs](https://github.com/cf-contrib/cloudflare-rs), the broker's own tokens), revocation, and the cleanup the cron runs. `DiscoveryServiceHandler`: the RFC 8414 and OpenID Connect Discovery metadata, and the keys. |
+
+## Development
+
+`nix develop` at the repository root has the toolchain.
+
+`cargo test` runs the unit tests. The integration tests run the Worker under
+`wrangler dev` against stand-ins for the OIDC issuers and Cloudflare that the
+tests serve and control:
+
+```sh
+tests/run.sh
+```
+
+It creates made-up secrets in a local Secrets Store, starts `wrangler dev` on
+port 8790, serves the stand-ins on 8791, and runs the tests one at a time.
+`wrangler.toml` is that setup, as in cf-nix-cache: a build with the
+`stand-ins` feature, which takes Cloudflare's API from
+`CF_STS_API_CLOUDFLARE_URL` (a release build never reads it), and a
+policy whose providers are the stand-ins' issuers. So a plain `wrangler dev`
+serves it too, against the stand-ins while the tests run.
+
+## License
+
+[MIT](../../LICENSE)

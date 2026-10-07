@@ -233,26 +233,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "cf-oidc-core"
-version = "0.8.0"
-dependencies = [
- "base64",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "web-sys",
- "worker",
-]
-
-[[package]]
-name = "cf-oidc-exchange-api"
+name = "cf-sts-api"
 version = "0.8.0"
 dependencies = [
  "async-trait",
  "axum",
  "base64",
- "cf-oidc-core",
- "cf-oidc-exchange-sdk",
+ "cf-sts-core",
+ "cf-sts-sdk",
  "chrono",
  "cloudflare",
  "rand_chacha",
@@ -271,7 +259,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "cf-oidc-exchange-sdk"
+name = "cf-sts-core"
+version = "0.8.0"
+dependencies = [
+ "base64",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "web-sys",
+ "worker",
+]
+
+[[package]]
+name = "cf-sts-sdk"
 version = "0.8.0"
 dependencies = [
  "async-trait",

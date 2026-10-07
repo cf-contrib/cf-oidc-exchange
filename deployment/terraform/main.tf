@@ -27,7 +27,7 @@ resource "cloudflare_worker" "this" {
 }
 
 locals {
-  # The policy, as the broker reads it from CF_OIDC_EXCHANGE_API_POLICY. The
+  # The policy, as the broker reads it from CF_STS_API_POLICY. The
   # module fills in what the deployment decides, and leaves out what's unset:
   # the broker takes a missing field, not a null one.
   policy = merge(
@@ -82,18 +82,18 @@ resource "cloudflare_worker_version" "this" {
 
   bindings = concat([
     {
-      name = "CF_OIDC_EXCHANGE_API_ACCOUNT_ID"
+      name = "CF_STS_API_ACCOUNT_ID"
       type = "plain_text"
       text = var.account_id
     },
     {
-      name = "CF_OIDC_EXCHANGE_API_POLICY"
+      name = "CF_STS_API_POLICY"
       type = "plain_text"
       text = local.policy_json
     },
     {
       # Only ever from Secrets Store, so the token never enters Terraform state.
-      name        = "CF_OIDC_EXCHANGE_API_CLOUDFLARE_TOKEN"
+      name        = "CF_STS_API_CLOUDFLARE_TOKEN"
       type        = "secrets_store_secret"
       store_id    = var.cloudflare_token_secret.secret_store_id
       secret_name = var.cloudflare_token_secret.secret_name
@@ -101,7 +101,7 @@ resource "cloudflare_worker_version" "this" {
     ], var.signing_key_secret == null ? [] : [
     {
       # The key the broker signs its own tokens with, for profiles with an audience.
-      name        = "CF_OIDC_EXCHANGE_API_SIGNING_KEY"
+      name        = "CF_STS_API_SIGNING_KEY"
       type        = "secrets_store_secret"
       store_id    = var.signing_key_secret.secret_store_id
       secret_name = var.signing_key_secret.secret_name
@@ -134,7 +134,7 @@ resource "cloudflare_workers_custom_domain" "this" {
   depends_on = [cloudflare_workers_deployment.this]
 }
 
-# Hourly cleanup of expired cf-oidc:* tokens.
+# Hourly cleanup of expired cf-sts:* tokens.
 resource "cloudflare_workers_cron_trigger" "this" {
   account_id  = var.account_id
   script_name = cloudflare_worker.this.name

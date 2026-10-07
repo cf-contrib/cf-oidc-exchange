@@ -1,17 +1,17 @@
-# cf-oidc-exchange Terraform module
+# cf-sts Terraform module
 
-> The Terraform / OpenTofu half of [cf-oidc-exchange](../..): deploys the released
+> The Terraform / OpenTofu half of [cf-sts](../..): deploys the released
 > broker, a Rust Worker, to Cloudflare, with its bindings, hourly cleanup cron, and
 > a workers.dev URL (or, optionally, a custom domain). No `wrangler` or local
 > build is needed.
 
 ```hcl
-module "cf_oidc_exchange" {
-  source = "git::https://github.com/cf-contrib/cf-oidc-exchange.git//deployment/terraform?ref=v0.13.0" # x-release-please-version
+module "cf_sts" {
+  source = "git::https://github.com/cf-contrib/cf-sts.git//deployment/terraform?ref=v0.13.0" # x-release-please-version
 
   account_id              = var.account_id
-  hostname                = "cf-oidc-exchange.example.workers.dev"
-  cloudflare_token_secret = { secret_store_id = var.secret_store_id, secret_name = "cf-oidc-exchange-cloudflare-token" }
+  hostname                = "cf-sts.example.workers.dev"
+  cloudflare_token_secret = { secret_store_id = var.secret_store_id, secret_name = "cf-sts-cloudflare-token" }
 
   oidc_providers = [
     {
@@ -33,8 +33,8 @@ module "cf_oidc_exchange" {
   ]
 }
 
-output "oidc_exchange_url" {
-  value = module.cf_oidc_exchange.url
+output "sts_url" {
+  value = module.cf_sts.url
 }
 ```
 
@@ -45,11 +45,11 @@ by default deploys the broker of the release its `ref` points to.
 
 - Terraform or OpenTofu >= 1.9.
 - The **Cloudflare token**, an account-owned API token with
-  **Account API Tokens Write** (see the [broker's README](../../crates/cf-oidc-exchange-api#deploy)),
+  **Account API Tokens Write** (see the [broker's README](../../crates/cf-sts-api#deploy)),
   stored in [Secrets Store](https://developers.cloudflare.com/secrets-store/) (open beta).
   If any profile has a `bucket`, the token also needs R2 permissions
   covering what it delegates: it creates their credentials and is
-  their parent (see [Buckets](../../crates/cf-oidc-exchange-api#buckets)).
+  their parent (see [Buckets](../../crates/cf-sts-api#buckets)).
 - A separate API token for *deploying*, exported as `CLOUDFLARE_API_TOKEN`, with:
   - **Account → Workers Scripts: Edit**
   - **Account → Secrets Store: Edit**, to bind the Cloudflare token's secret, and the signing key's if set
@@ -63,14 +63,14 @@ by default deploys the broker of the release its `ref` points to.
 ```sh
 # Store the Cloudflare token once. Wrangler prompts for the value.
 wrangler secrets-store store list --remote     # note the store ID
-wrangler secrets-store secret create <store-id> --name cf-oidc-exchange-cloudflare-token --scopes workers --remote
+wrangler secrets-store secret create <store-id> --name cf-sts-cloudflare-token --scopes workers --remote
 
 $EDITOR main.tf                                # oidc_providers and profiles; see Policy below
 
 export CLOUDFLARE_API_TOKEN=...                # deploy token, not the broker's Cloudflare token
 tofu init
 tofu apply
-curl -fsS "$(tofu output -raw oidc_exchange_url)/.well-known/oauth-authorization-server"   # 500 if the policy is wrong
+curl -fsS "$(tofu output -raw sts_url)/.well-known/oauth-authorization-server"   # 500 if the policy is wrong
 ```
 
 Terraform only references the secret by store ID and name. The token's value
@@ -95,7 +95,7 @@ Either way the broker is reachable on exactly one URL, the `url` output, which i
 ## Policy
 
 The policy is three variables, as cf-nix-cache's module takes its providers,
-in the policy's own format (see the [broker's README](../../crates/cf-oidc-exchange-api#policy)):
+in the policy's own format (see the [broker's README](../../crates/cf-sts-api#policy)):
 
 - `oidc_providers`: the OIDC issuers the broker trusts. Typed, and checked at
   plan time: every provider needs at least one claim set, and none may be empty. `audience` defaults to the
@@ -144,7 +144,7 @@ the plan.
 
 A policy kept in a file still works: `profiles = yamldecode(file("${path.module}/policy.yaml")).profiles`.
 
-The policy is bound as `CF_OIDC_EXCHANGE_API_POLICY`, compact JSON. A Worker
+The policy is bound as `CF_STS_API_POLICY`, compact JSON. A Worker
 variable holds at most 5 KB, and the plan fails on a policy over that. Every
 policy change creates a new Worker version.
 
@@ -161,17 +161,25 @@ fails if a download doesn't match `SHA256SUMS`. To pin the artifacts too, set
 `checksums_sha256` to the SHA-256 of the release's `SHA256SUMS`:
 
 ```sh
-curl -fsSL https://github.com/cf-contrib/cf-oidc-exchange/releases/download/v0.13.0/SHA256SUMS | sha256sum # x-release-please-version
+curl -fsSL https://github.com/cf-contrib/cf-sts/releases/download/v0.13.0/SHA256SUMS | sha256sum # x-release-please-version
 ```
 
 Set `release_tag = "latest"` to track the newest release instead.
+
+Upgrading from cf-oidc-exchange (before v0.14.0): the Worker's bindings are
+now `CF_STS_API_*`, minted tokens are named `cf-sts:…`, and the R2 token type
+is `urn:cf-sts:params:oauth:token-type:r2_credentials`. Nothing takes the old
+names. `worker_name` now defaults to `cf-sts`: if you relied on the default, set
+`worker_name = "cf-oidc-exchange"` to keep the Worker, and with it its
+workers.dev URL, which is the OIDC audience. The cleanup no longer deletes
+expired `cf-oidc:*` tokens; delete them in the dashboard.
 
 To deploy a build of your own (an unreleased branch, a fork), build the Worker
 and set `worker_dir` to the result. Nothing is downloaded then:
 
 ```sh
-cd crates/cf-oidc-exchange-api
-worker-build --release   # worker_dir = ".../crates/cf-oidc-exchange-api/build"
+cd crates/cf-sts-api
+worker-build --release   # worker_dir = ".../crates/cf-sts-api/build"
 ```
 
 ## Inputs
@@ -182,14 +190,14 @@ worker-build --release   # worker_dir = ".../crates/cf-oidc-exchange-api/build"
 | `hostname` | yes | | `<worker_name>.<subdomain>.workers.dev`, or a custom domain. |
 | `zone_id` | for a custom domain | `null` | Zone ID of the zone holding a custom-domain `hostname`. |
 | `cloudflare_token_secret` | yes | | `{ secret_store_id, secret_name }` of the Secrets Store secret holding the Cloudflare token. With a profile's `bucket`, the token also needs R2 permissions covering what it delegates. |
-| `signing_key_secret` | for profiles with an `audience` | `null` | `{ secret_store_id, secret_name }` of the Secrets Store secret holding the RSA key the broker signs its own tokens with. See [Tokens for other services](../../crates/cf-oidc-exchange-api#tokens-for-other-services). |
+| `signing_key_secret` | for profiles with an `audience` | `null` | `{ secret_store_id, secret_name }` of the Secrets Store secret holding the RSA key the broker signs its own tokens with. See [Tokens for other services](../../crates/cf-sts-api#tokens-for-other-services). |
 | `oidc_providers` | yes | | The OIDC issuers the broker trusts: `{ name, issuer, audience?, jwks_uri?, typ?, claims }` each. `audience` defaults to the broker's URL. See [Policy](#policy). |
 | `profiles` | yes | | What callers may get, in the policy's format. See [Policy](#policy). |
 | `defaults` | no | `{}` | `{ ttl?, max_ttl? }`: the TTLs of profiles that don't set their own. |
 | `worker_dir` | no | `null` | A local build (`index.js`, `index_bg.wasm`) to deploy instead of a release. |
 | `release_tag` | no | the module's release | Release to deploy, or `latest`. |
 | `checksums_sha256` | no | `null` | Expected SHA-256 of the release's `SHA256SUMS`. |
-| `worker_name` | no | `cf-oidc-exchange` | Worker script name. |
+| `worker_name` | no | `cf-sts` | Worker script name. |
 | `worker_compatibility_date` | no | `2026-08-15` | Workers compatibility date. |
 
 ## Outputs

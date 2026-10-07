@@ -21,7 +21,7 @@ jobs:
       # The OpenAPI document is compiled from TypeSpec and checked in, so it
       # must be what the .tsp compiles to.
       - name: Check OpenAPI Document
-        working-directory: crates/cf-oidc-exchange-sdk/openapi
+        working-directory: crates/cf-sts-sdk/openapi
         run: |
           nix develop --command npm ci
           nix develop --command npm run generate
@@ -43,12 +43,12 @@ jobs:
       - name: Test Rust
         run: nix develop --command cargo test --workspace
       - name: Build Rust Worker
-        working-directory: crates/cf-oidc-exchange-api
+        working-directory: crates/cf-sts-api
         run: nix develop --command worker-build --release
       # The Worker's flows end to end, under wrangler dev, against the tests'
       # stand-ins for the OIDC issuers and Cloudflare.
       - name: Integration Test Rust Worker
-        run: nix develop --command crates/cf-oidc-exchange-api/tests/run.sh
+        run: nix develop --command crates/cf-sts-api/tests/run.sh
       - name: Validate Terraform Module
         working-directory: deployment/terraform
         run: |
@@ -78,7 +78,7 @@ jobs:
           echo "AWS_ACCESS_KEY_ID=stale-access-key-id" >> "$GITHUB_ENV"
           echo "AWS_SESSION_TOKEN=stale-session-token" >> "$GITHUB_ENV"
       # The stub answers profile smoke-r2 as a profile with a bucket and no token.
-      - name: Run cf-oidc-exchange (r2 only)
+      - name: Run cf-sts (r2 only)
         uses: ./
         env:
           ACTIONS_ID_TOKEN_REQUEST_URL: http://127.0.0.1:8787/oidc?api-version=2.0
@@ -100,7 +100,7 @@ jobs:
           test "$AWS_ACCESS_KEY_ID" = stale-access-key-id   # AWS_* is left alone
           test "$AWS_SESSION_TOKEN" = stale-session-token
           test -z "$AWS_SECRET_ACCESS_KEY$AWS_ENDPOINT_URL_S3"
-      - name: Run cf-oidc-exchange (token)
+      - name: Run cf-sts (token)
         uses: ./
         env:
           ACTIONS_ID_TOKEN_REQUEST_URL: http://127.0.0.1:8787/oidc?api-version=2.0
@@ -157,7 +157,7 @@ jobs:
       # The Worker as deployment/terraform uploads it: worker-build's index.js, and
       # the wasm as base64 text, so Terraform can check its checksum.
       - name: Build
-        working-directory: crates/cf-oidc-exchange-api
+        working-directory: crates/cf-sts-api
         run: |
           nix develop --command worker-build --release
           mkdir -p "$RUNNER_TEMP/release"

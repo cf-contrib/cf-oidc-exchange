@@ -1,6 +1,6 @@
 // The broker's HTTP contract, as the action uses it: types only, which the action
-// type-checks against. The contract is crates/cf-oidc-exchange-sdk's TypeSpec
-// (openapi/oidc/exchange/v1/exchangev1.tsp); keep this file in step.
+// type-checks against. The contract is crates/cf-sts-sdk's TypeSpec
+// (openapi/sts/v1/stsv1.tsp); keep this file in step.
 
 /** What the presented `subject_token` is: an OIDC token, as `id_token` or `jwt`. */
 export type SubjectTokenType = "urn:ietf:params:oauth:token-type:id_token" | "urn:ietf:params:oauth:token-type:jwt";
@@ -12,7 +12,7 @@ export type SubjectTokenType = "urn:ietf:params:oauth:token-type:id_token" | "ur
  */
 export type IssuedTokenType =
   | "urn:ietf:params:oauth:token-type:access_token"
-  | "urn:cf-oidc-exchange:params:oauth:token-type:r2-credentials"
+  | "urn:cf-sts:params:oauth:token-type:r2_credentials"
   | "urn:ietf:params:oauth:token-type:jwt";
 
 /**
