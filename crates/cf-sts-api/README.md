@@ -98,12 +98,11 @@ providers:
     claims:
       - namespace_id: "4000001"              # REQUIRED: pin your group's ID
 
-  - name: com.cloudflare.access              # people, through a Cloudflare Access application
-    issuer: https://example.cloudflareaccess.com
-    audience: <the Access application's AUD tag>
-    jwks_uri: https://example.cloudflareaccess.com/cdn-cgi/access/certs
+  - name: com.cloudflare.access              # people, through an Access for SaaS OIDC application
+    issuer: https://example.cloudflareaccess.com/cdn-cgi/access/sso/oidc/<client-id>
+    client_id: <client-id>                   # people sign in as this client: see People
     claims:
-      - type: app                            # your team's issuer and app's audience are the pin
+      - iss: https://example.cloudflareaccess.com/cdn-cgi/access/sso/oidc/<client-id>   # the app is the pin
 
 defaults:
   ttl: 15m     # default 15m
@@ -184,9 +183,10 @@ A provider is an OIDC issuer you trust to vouch for a caller. `providers` is a l
 |---|---|
 | `name` | Required, unique. Profiles name it in `provider`. |
 | `issuer` | Required. The tokens' `iss`, exactly. `https://`, or plain `http://` on `127.0.0.1`, `localhost` or `[::1]` for local development. One provider per issuer. |
-| `audience` | Required. The tokens' `aud` must contain it. Use one only the broker accepts, such as its URL: for GitHub Actions, not GitHub's default `https://github.com/<owner>`, so a token requested for AWS or GCP can't be replayed here. |
+| `audience` | Required, unless there's a `client_id`. The tokens' `aud` must contain it. Use one only the broker accepts, such as its URL: for GitHub Actions, not GitHub's default `https://github.com/<owner>`, so a token requested for AWS or GCP can't be replayed here. |
 | `jwks_uri` | Optional. Otherwise the keys come from the issuer's metadata: its `/.well-known/openid-configuration`, or, if it has none, its RFC 8414 `/.well-known/oauth-authorization-server`, which must name the same issuer. They never come from a URL in the token. |
 | `typ` | Optional. The `typ` its tokens must have ([RFC 8725 §3.11](https://www.rfc-editor.org/rfc/rfc8725#section-3.11)), such as `at+jwt` to take only another broker's access tokens, so another kind of token its issuer signs can't pass for one. Unset takes any. |
+| `client_id` | Optional. The OAuth client [people](#people) sign in to it as, for an ID token the broker takes: a provider with one is listed in the metadata. It's also the `audience`, which can then be left out. |
 | `claims` | Required: at least one [claim set](#claim-sets). Every token from this provider must match one, whichever profile it gets. |
 
 `audience` is a field, not one of the `claims`, because it says whether the token is meant for the broker at all: it's checked with the signature, `iss` and expiry, before `claims` pick a profile. Either failing is `400` (`invalid_request`), as RFC 8693 has it for a subject token that's invalid or that the policy doesn't take.
@@ -209,7 +209,11 @@ A profile's `provider` can be left out when the policy has exactly one provider.
 
 ### People
 
-The broker takes OIDC tokens only. For people, use an identity provider that issues them one, such as a [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/identity/authorization-cookie/validating-json/) application: its tokens carry the person's `email`, signed with keys at `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`, the provider's `jwks_uri`. A provider for it is like any other, and its profiles match on those claims. On the command line, `cloudflared access login <app>` and `cloudflared access token -app=<app>` get a person a token to exchange.
+The broker takes OIDC tokens only. For people, use an identity provider that issues them an ID token, such as a [Cloudflare Access for SaaS](https://developers.cloudflare.com/cloudflare-one/applications/configure-apps/saas-apps/generic-oidc-saas/) OIDC application, as a public client with PKCE and the redirect `http://127.0.0.1:8250/callback`. A provider for it is like any other, and its profiles match on its tokens' claims, such as `email`.
+
+Give that provider the `client_id` people sign in as, and the broker's [metadata](#http-api) lists it in `identity_providers`, with its name and issuer. An ID token's `aud` is the client it was issued to, so the `client_id` is the provider's `audience` too: leave `audience` out, or set it to the same. Several providers can have one. The [CLI](../cf-sts-cli) reads the list, so `cf-sts login --url <broker>` is all a person sets, with `--provider <name>` to pick one when there are several.
+
+Access for SaaS with Cloudflare as the login method hasn't been tried end to end yet ([#53](https://github.com/cf-contrib/cf-sts/issues/53)): which claims its ID tokens carry, and how long they last.
 
 Keep people's profiles to what they need locally, such as read-only state, and keep `apply` in CI behind `environment: prod` with required reviewers.
 
@@ -362,7 +366,7 @@ These are enforced when the policy loads, so an unsafe policy never serves a req
 |---|---|---|---|
 | `POST` | `/oauth/token` | `subject_token` in the body | [Token exchange](#token-exchange) (RFC 8693) of an OIDC token. What the action uses. |
 | `POST` | `/oauth/revoke` | `token` in the body | [Revoke](#revocation) (RFC 7009) a token the broker minted. What the action's post step uses. |
-| `GET` | `/.well-known/oauth-authorization-server` | public | The broker's Authorization Server Metadata (RFC 8414): its issuer, key and endpoint URLs, for services that verify [its tokens](#tokens-for-other-services). Its endpoints' auth methods are `none`: callers don't authenticate as clients. |
+| `GET` | `/.well-known/oauth-authorization-server` | public | The broker's Authorization Server Metadata (RFC 8414): its issuer, key and endpoint URLs, for services that verify [its tokens](#tokens-for-other-services). Its endpoints' auth methods are `none`: callers don't authenticate as clients. With providers that have a `client_id`, also `identity_providers: [{ name, issuer, client_id }]`, where [people](#people) sign in. |
 | `GET` | `/.well-known/openid-configuration` | public | The same issuer and keys as OpenID Provider Metadata (OpenID Connect Discovery 1.0), for services that only read that. |
 | `GET` | `/.well-known/jwks` | public | The public key the broker signs its own tokens with. Empty without `CF_STS_API_SIGNING_KEY`. |
 | `GET` | `/health/live` | public | `200` whenever the Worker's bindings are valid. |

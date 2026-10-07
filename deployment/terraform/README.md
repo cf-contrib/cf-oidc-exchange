@@ -191,7 +191,7 @@ worker-build --release   # worker_dir = ".../crates/cf-sts-api/build"
 | `zone_id` | for a custom domain | `null` | Zone ID of the zone holding a custom-domain `hostname`. |
 | `cloudflare_token_secret` | yes | | `{ secret_store_id, secret_name }` of the Secrets Store secret holding the Cloudflare token. With a profile's `bucket`, the token also needs R2 permissions covering what it delegates. |
 | `signing_key_secret` | for profiles with an `audience` | `null` | `{ secret_store_id, secret_name }` of the Secrets Store secret holding the RSA key the broker signs its own tokens with. See [Tokens for other services](../../crates/cf-sts-api#tokens-for-other-services). |
-| `oidc_providers` | yes | | The OIDC issuers the broker trusts: `{ name, issuer, audience?, jwks_uri?, typ?, claims }` each. `audience` defaults to the broker's URL. See [Policy](#policy). |
+| `oidc_providers` | yes | | The OIDC issuers the broker trusts: `{ name, issuer, audience?, jwks_uri?, typ?, client_id?, claims }` each. `audience` defaults to the `client_id` [people](../../crates/cf-sts-api#people) sign in as, if there is one, and otherwise to the broker's URL. See [Policy](#policy). |
 | `profiles` | yes | | What callers may get, in the policy's format. See [Policy](#policy). |
 | `defaults` | no | `{}` | `{ ttl?, max_ttl? }`: the TTLs of profiles that don't set their own. |
 | `worker_dir` | no | `null` | A local build (`index.js`, `index_bg.wasm`) to deploy instead of a release. |

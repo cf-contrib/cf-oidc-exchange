@@ -32,6 +32,7 @@ steps:
 |---|---|---|
 | [`action`](action) | `uses: cf-contrib/cf-sts@<version>` | The GitHub Action, in JavaScript with no runtime dependencies. Gets the job's OIDC token, exports the minted Cloudflare token, and revokes it at job end. |
 | [`crates/cf-sts-api`](crates/cf-sts-api) | `index.js` + `index_bg.wasm.base64` in [Releases](https://github.com/cf-contrib/cf-sts/releases) | The broker, a Cloudflare Worker written in Rust, in your account. Checks the OIDC token against your policy, and mints the Cloudflare token or R2 credentials, or signs a token for another service. |
+| [`crates/cf-sts-cli`](crates/cf-sts-cli) | `nix profile install github:cf-contrib/cf-sts` | The CLI, for people: `cf-sts login`, then `cf-sts exec --profile <profile> -- <command>` runs a command with the same environment the action sets, and revokes the token when it exits. |
 | [`crates/cf-sts-sdk`](crates/cf-sts-sdk) | A Rust crate in this workspace; not published | The broker's HTTP API: its [TypeSpec](crates/cf-sts-sdk/openapi/sts/v1/stsv1.tsp), the OpenAPI document compiled from it, and the types, server traits and client generated from it; hand-written beside them, the health endpoints. The Worker builds on it. |
 | [`crates/cf-sts-core`](crates/cf-sts-core) | A Rust crate in this workspace; not published | OIDC tokens in Workers, verified and signed. The Worker builds on it, and cf-nix-cache can too. |
 | [`deployment/terraform`](deployment/terraform) | `//deployment/terraform?ref=<version>` | Deploys the released Worker with your policy, its bindings and its cron. |
@@ -96,6 +97,7 @@ Everything runs inside the dev shell: `nix develop`, or the Dev Container.
 (cd crates/cf-sts-sdk/openapi && npm ci && npm run generate)   # the OpenAPI document, after editing the .tsp
 cargo fmt --all --check && cargo test                                    # the crates' unit tests
 crates/cf-sts-api/tests/run.sh                                 # the broker end to end, under wrangler dev
+nix build .#default                                            # the CLI, as people install it
 (cd deployment/terraform && tofu test)                                   # the Terraform module
 ```
 

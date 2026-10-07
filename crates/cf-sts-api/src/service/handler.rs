@@ -32,7 +32,7 @@ use std::sync::Arc;
 use cf_sts_core::{AccessTokenClaims, Jwt, SigningKey};
 use cf_sts_sdk::v1::{
     self, AuthorizationServerMetadata, BucketCredentials, DiscoveryServiceApi, Error, ErrorCode,
-    IssuedTokenType, Jwks, OpenIdProviderMetadata, TokenExchangeRequest,
+    IdentityProvider, IssuedTokenType, Jwks, OpenIdProviderMetadata, TokenExchangeRequest,
     TokenExchangeRequestSubjectTokenType as SubjectTokenType, TokenExchangeResponse,
     TokenExchangeResponseTokenType as TokenType, TokenRevocationRequest, TokenServiceApi,
 };
@@ -647,9 +647,11 @@ impl DiscoveryServiceApi for DiscoveryServiceHandler {
     /// `GET /.well-known/oauth-authorization-server`: the broker's
     /// Authorization Server Metadata (RFC 8414), so services can find its keys
     /// and endpoints. It issues tokens by exchange only, so there's no
-    /// authorization endpoint.
+    /// authorization endpoint. With providers people sign in with, it also
+    /// says which, so a client needs only the broker's URL.
     async fn metadata(&self) -> v1::MetadataResponse {
-        let issuer = &self.config.policy().issuer;
+        let policy = self.config.policy();
+        let issuer = &policy.issuer;
         let url = |path: &str| format!("{issuer}{path}").parse();
         let (Ok(jwks_uri), Ok(token_endpoint), Ok(revocation_endpoint)) = (
             url("/.well-known/jwks"),
@@ -671,6 +673,17 @@ impl DiscoveryServiceApi for DiscoveryServiceHandler {
             grant_types_supported: vec![TOKEN_EXCHANGE.into()],
             token_endpoint_auth_methods_supported: Some(vec!["none".into()]),
             revocation_endpoint_auth_methods_supported: Some(vec!["none".into()]),
+            identity_providers: Some(
+                policy
+                    .identity_providers()
+                    .map(|provider| IdentityProvider {
+                        name: provider.name.clone(),
+                        issuer: provider.issuer.clone(),
+                        client_id: provider.client_id.clone().unwrap_or_default(),
+                    })
+                    .collect::<Vec<_>>(),
+            )
+            .filter(|providers| !providers.is_empty()),
         })
     }
 

@@ -48,14 +48,15 @@ variable "signing_key_secret" {
 
 variable "oidc_providers" {
   type = list(object({
-    name     = string
-    issuer   = string
-    audience = optional(string)
-    jwks_uri = optional(string)
-    typ      = optional(string)
-    claims   = list(map(string))
+    name      = string
+    issuer    = string
+    audience  = optional(string)
+    jwks_uri  = optional(string)
+    typ       = optional(string)
+    client_id = optional(string)
+    claims    = list(map(string))
   }))
-  description = "The OIDC issuers whose tokens the broker takes: the policy's providers. Each has a name for profiles to refer to, its issuer, the audience its tokens must have (the broker's URL by default, which is what the action asks for), optionally where its keys are and the typ its tokens must have (such as at+jwt), and the claim sets every token from it must match one of. See the broker's README."
+  description = "The OIDC issuers whose tokens the broker takes: the policy's providers. Each has a name for profiles to refer to, its issuer, the audience its tokens must have (the broker's URL by default, which is what the action asks for), optionally where its keys are, the typ its tokens must have (such as at+jwt), and, for one people sign in with, the client_id they sign in as, which is then its audience; and the claim sets every token from it must match one of. See the broker's README."
 
   validation {
     condition     = length(var.oidc_providers) > 0
@@ -65,6 +66,11 @@ variable "oidc_providers" {
   validation {
     condition     = alltrue([for provider in var.oidc_providers : length(provider.claims) > 0 && alltrue([for set in provider.claims : length(set) > 0])])
     error_message = "Every provider needs at least one claim set, pinning it to your organization, and no claim set may be empty."
+  }
+
+  validation {
+    condition     = alltrue([for provider in var.oidc_providers : provider.audience == null || provider.client_id == null || provider.audience == provider.client_id])
+    error_message = "A provider with a client_id has it as its audience: leave audience out."
   }
 }
 

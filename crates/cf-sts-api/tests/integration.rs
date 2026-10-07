@@ -732,6 +732,84 @@ mod exchange_requests {
     }
 }
 
+mod people {
+    use super::*;
+
+    /// The client ID of the `access` stand-in, an Access for SaaS OIDC app:
+    /// its ID tokens' audience.
+    const CLIENT_ID: &str = "test-access-client-id";
+
+    /// An ID token from the `access` stand-in for `email`, as the CLI's login
+    /// gets one.
+    fn id_token(email: &str) -> String {
+        let claims = json!({ "sub": "user-0001", "email": email, "name": "Alice" });
+        sign_with(&issuer("access"), claims, CLIENT_ID, 300)
+    }
+
+    #[tokio::test]
+    async fn the_metadata_says_where_people_sign_in() {
+        let _t = start().await;
+        let res = call(Method::GET, "/.well-known/oauth-authorization-server").await;
+        assert_eq!(res.status, 200);
+        // Only the providers with a client ID: not GitHub Actions or GitLab.
+        assert_eq!(
+            res.json()["identity_providers"],
+            json!([{ "name": "access", "issuer": issuer("access"), "client_id": CLIENT_ID }])
+        );
+    }
+
+    #[tokio::test]
+    async fn exchanges_a_persons_id_token_for_their_profile() {
+        let t = start().await;
+        let res = job_token(
+            &id_token("alice@example.com"),
+            &[("profile", "example-org/app:tofu-plan")],
+        )
+        .await;
+        assert_eq!(res.status, 200, "{}", res.text);
+        let body = res.json();
+        assert_eq!(body["issued_token_type"], R2_CREDENTIALS);
+        // An Access token carries no repository: the prefix is the profile's own.
+        assert_eq!(
+            body["bucket"]["prefixes"],
+            json!(["github.com/example-org/app/"])
+        );
+        assert_eq!(token_count(), 1); // no API token minted
+        assert_matches(
+            &t.audit("r2.issued").await.unwrap(),
+            json!({ "provider": "access", "profile": "example-org/app:tofu-plan", "sub": "user-0001" }),
+        );
+    }
+
+    #[tokio::test]
+    async fn refuses_a_person_a_profile_for_ci() {
+        let t = start().await;
+        let res = job_token(
+            &id_token("alice@example.com"),
+            &[("profile", "example-org/infra:ci.apply")],
+        )
+        .await;
+        assert_eq!(res.status, 400);
+        assert_refused(
+            &t.deny().await,
+            "invalid_request",
+            "profile example-org/infra:ci.apply isn't for provider access",
+        );
+    }
+
+    #[tokio::test]
+    async fn refuses_someone_the_profile_doesnt_name() {
+        let t = start().await;
+        let res = job_token(&id_token("mallory@example.com"), &[]).await;
+        assert_eq!(res.status, 400);
+        assert_refused(
+            &t.deny().await,
+            "invalid_request",
+            "no profile matches the token",
+        );
+    }
+}
+
 mod providers {
     use super::*;
 
