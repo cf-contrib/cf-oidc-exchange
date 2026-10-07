@@ -12,7 +12,7 @@ export type SubjectTokenType = "urn:ietf:params:oauth:token-type:id_token" | "ur
  */
 export type IssuedTokenType =
   | "urn:ietf:params:oauth:token-type:access_token"
-  | "urn:cf-sts:params:oauth:token-type:r2-credentials"
+  | "urn:cf-sts:params:oauth:token-type:r2_credentials"
   | "urn:ietf:params:oauth:token-type:jwt";
 
 /**

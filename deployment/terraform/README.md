@@ -168,7 +168,7 @@ Set `release_tag = "latest"` to track the newest release instead.
 
 Upgrading from cf-oidc-exchange (before v0.14.0): the Worker's bindings are
 now `CF_STS_API_*`, minted tokens are named `cf-sts:…`, and the R2 token type
-is `urn:cf-sts:params:oauth:token-type:r2-credentials`. Nothing takes the old
+is `urn:cf-sts:params:oauth:token-type:r2_credentials`. Nothing takes the old
 names. `worker_name` now defaults to `cf-sts`: if you relied on the default, set
 `worker_name = "cf-oidc-exchange"` to keep the Worker, and with it its
 workers.dev URL, which is the OIDC audience. The cleanup no longer deletes

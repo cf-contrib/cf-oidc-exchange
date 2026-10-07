@@ -282,11 +282,11 @@ components:
       type: string
       enum:
         - urn:ietf:params:oauth:token-type:access_token
-        - urn:cf-sts:params:oauth:token-type:r2-credentials
+        - urn:cf-sts:params:oauth:token-type:r2_credentials
         - urn:ietf:params:oauth:token-type:jwt
       description: |-
         What the exchange issues: a Cloudflare API token (`access_token`), R2 credentials
-        alone (`r2-credentials`), or the broker's own JWT access token for a service
+        alone (`r2_credentials`), or the broker's own JWT access token for a service
         (`access_token`, or `jwt` if asked for by that name).
     Jwks:
       type: object
@@ -388,7 +388,7 @@ components:
           $ref: '#/components/schemas/IssuedTokenType'
           description: |-
             Checked against the audience, not used to choose: what's issued is what the profile
-            has. For Cloudflare's audience, `access_token` or `r2-credentials`; for a
+            has. For Cloudflare's audience, `access_token` or `r2_credentials`; for a
             service's, `jwt` or `access_token`, two names for the same JWT. Any other is
             `invalid_target`.
         profile:
@@ -418,7 +418,7 @@ components:
             signed.
         issued_token_type:
           $ref: '#/components/schemas/IssuedTokenType'
-          description: '`access_token` with an `access_token`, `r2-credentials` without one, or `jwt` as asked for.'
+          description: '`access_token` with an `access_token`, `r2_credentials` without one, or `jwt` as asked for.'
         token_type:
           type: string
           enum:

@@ -74,7 +74,7 @@ model TokenExchangeRequest {
 
   /**
    * Checked against the audience, not used to choose: what's issued is what the profile
-   * has. For Cloudflare's audience, `access_token` or `r2-credentials`; for a
+   * has. For Cloudflare's audience, `access_token` or `r2_credentials`; for a
    * service's, `jwt` or `access_token`, two names for the same JWT. Any other is
    * `invalid_target`.
    */
@@ -94,12 +94,12 @@ model TokenExchangeRequest {
 
 /**
  * What the exchange issues: a Cloudflare API token (`access_token`), R2 credentials
- * alone (`r2-credentials`), or the broker's own JWT access token for a service
+ * alone (`r2_credentials`), or the broker's own JWT access token for a service
  * (`access_token`, or `jwt` if asked for by that name).
  */
 union IssuedTokenType {
   "urn:ietf:params:oauth:token-type:access_token",
-  "urn:cf-sts:params:oauth:token-type:r2-credentials",
+  "urn:cf-sts:params:oauth:token-type:r2_credentials",
   "urn:ietf:params:oauth:token-type:jwt",
 }
 
@@ -111,7 +111,7 @@ model TokenExchangeResponse {
    */
   access_token?: string;
 
-  /** `access_token` with an `access_token`, `r2-credentials` without one, or `jwt` as asked for. */
+  /** `access_token` with an `access_token`, `r2_credentials` without one, or `jwt` as asked for. */
   issued_token_type: IssuedTokenType;
 
   /** `Bearer` with an `access_token`, or `N_A` without one (RFC 8693 §2.2.1). */
