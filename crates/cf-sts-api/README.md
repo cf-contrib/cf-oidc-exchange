@@ -209,7 +209,7 @@ A profile's `provider` can be left out when the policy has exactly one provider.
 
 ### People
 
-The broker takes OIDC tokens only. For people, use an identity provider that issues them an ID token, such as a [Cloudflare Access for SaaS](https://developers.cloudflare.com/cloudflare-one/applications/configure-apps/saas-apps/generic-oidc-saas/) OIDC application, as a public client with PKCE and the redirect `http://127.0.0.1:8250/callback`. A provider for it is like any other, and its profiles match on its tokens' claims, such as `email`.
+The broker takes OIDC tokens only. For people, use an identity provider that issues them an ID token, such as a [Cloudflare Access for SaaS](https://developers.cloudflare.com/cloudflare-one/applications/configure-apps/saas-apps/generic-oidc-saas/) OIDC application, as a public client with PKCE and the redirect `http://127.0.0.1:8250/callback`. A provider for it is like any other, and its profiles match on its tokens' claims, such as `email`. The [Access module](../../deployment/terraform/modules/access) creates the application and its policy, and outputs the provider.
 
 Give that provider the `client_id` people sign in as, and the broker's [metadata](#http-api) lists it in `identity_providers`, with its name and issuer. An ID token's `aud` is the client it was issued to, so the `client_id` is the provider's `audience` too: leave `audience` out, or set it to the same. Several providers can have one. The [CLI](../cf-sts-cli) reads the list, so `cf-sts login --url <broker>` is all a person sets, with `--provider <name>` to pick one when there are several.
 

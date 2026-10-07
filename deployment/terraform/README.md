@@ -99,7 +99,8 @@ in the policy's own format (see the [broker's README](../../crates/cf-sts-api#po
 
 - `oidc_providers`: the OIDC issuers the broker trusts. Typed, and checked at
   plan time: every provider needs at least one claim set, and none may be empty. `audience` defaults to the
-  broker's URL, which is what the action asks for.
+  broker's URL, which is what the action asks for. For people signing in
+  through Cloudflare Access, the [Access module](modules/access) outputs one.
 - `profiles`: what callers may get. Untyped, because a token policy's
   `resources` are flat in one profile and nested in another, as Cloudflare
   takes them; the plan checks each has a name and a claim set, and the broker
