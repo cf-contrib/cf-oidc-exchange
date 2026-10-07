@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/cf-contrib/cf-sts/compare/v0.14.0...v0.15.0) (2026-10-07)
+
+
+### Features
+
+* the cf-sts CLI, for people ([#85](https://github.com/cf-contrib/cf-sts/issues/85)) ([cb2a4c7](https://github.com/cf-contrib/cf-sts/commit/cb2a4c722d91be4fe0c656002d61eb120a4d6171))
+
 ## [0.14.0](https://github.com/cf-contrib/cf-sts/compare/v0.13.0...v0.14.0) (2026-10-07)
 
 
