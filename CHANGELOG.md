@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.18.0](https://github.com/cf-contrib/cloudflare-sts/compare/v0.17.0...v0.18.0) (2026-10-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* deployment/terraform/modules/access is gone. Use tofu-contrib/terraform-cloudflare-access//modules/saas-oidc with name = "cloudflare-sts" and redirect_uris = ["http://127.0.0.1:8250/callback"], its old defaults, and build the provider from its issuer and client_id outputs.
+* nothing takes the old names. The Worker's bindings are CLOUDFLARE_STS_API_* (were CF_STS_API_*), and the CLI reads CLOUDFLARE_STS_CLI_* (was CF_STS_CLI_*). Minted tokens are named cloudflare-sts:…, and revoke and the hourly cleanup no longer touch cf-sts:… tokens. The R2 token type is urn:cloudflare-sts:params:oauth:token-type:r2_credentials. The Terraform module's worker_name defaults to cloudflare-sts-api: set worker_name = "cf-sts" to keep an existing Worker and its workers.dev URL, the OIDC audience. The Access module's name defaults to cloudflare-sts.
+
+### Features
+
+* rename the project cloudflare-sts ([#92](https://github.com/cf-contrib/cloudflare-sts/issues/92)) ([6fed0fc](https://github.com/cf-contrib/cloudflare-sts/commit/6fed0fcca076ee851de570a88ee476dc1196f98a))
+* sign people in with terraform-cloudflare-access ([#95](https://github.com/cf-contrib/cloudflare-sts/issues/95)) ([8e08455](https://github.com/cf-contrib/cloudflare-sts/commit/8e08455b993cbd1ee947e84efd727c457d117642))
+
 ## [0.17.0](https://github.com/cf-contrib/cf-sts/compare/v0.16.0...v0.17.0) (2026-10-07)
 
 
