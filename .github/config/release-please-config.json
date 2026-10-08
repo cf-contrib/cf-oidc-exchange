@@ -14,7 +14,6 @@
         "action/README.md",
         "deployment/terraform/README.md",
         "deployment/terraform/variables.tf",
-        "deployment/terraform/modules/access/README.md",
         "crates/cloudflare-sts-cli/Cargo.toml",
         {
           "type": "toml",

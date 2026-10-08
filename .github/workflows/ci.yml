@@ -60,12 +60,6 @@ jobs:
           nix develop --command tofu init -backend=false
           nix develop --command tofu validate
           nix develop --command tofu test
-      - name: Validate Terraform Access Module
-        working-directory: deployment/terraform/modules/access
-        run: |
-          nix develop --command tofu init -backend=false
-          nix develop --command tofu validate
-          nix develop --command tofu test
 
   # Runs the action from a fresh checkout with nothing installed, against a stub
   # broker that also stands in for the runner's OIDC endpoint. Catches runtime
