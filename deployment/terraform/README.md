@@ -159,7 +159,7 @@ with PKCE, and the policy that says who may sign in. Give the broker a provider
 for it:
 
 ```hcl
-module "access_oidc" {
+module "cloudflare_access_saas_oidc" {
   source = "git::https://github.com/tofu-contrib/terraform-cloudflare-access.git//modules/saas-oidc?ref=v0.1.0"
 
   account_id    = var.account_id
@@ -175,9 +175,9 @@ module "cloudflare_sts" {
     # ... CI's providers
     {
       name      = "com.cloudflare.access"
-      issuer    = module.access_oidc.issuer
-      client_id = module.access_oidc.client_id # people's ID tokens' audience
-      claims    = [{ iss = module.access_oidc.issuer }]
+      issuer    = module.cloudflare_access_saas_oidc.issuer
+      client_id = module.cloudflare_access_saas_oidc.client_id # people's ID tokens' audience
+      claims    = [{ iss = module.cloudflare_access_saas_oidc.issuer }]
     },
   ]
 
