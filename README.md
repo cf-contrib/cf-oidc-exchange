@@ -34,14 +34,14 @@ steps:
 | [`crates/cloudflare-sts-api`](crates/cloudflare-sts-api) | `index.js` + `index_bg.wasm.base64` in [Releases](https://github.com/cf-contrib/cloudflare-sts/releases) | The broker, a Cloudflare Worker written in Rust, in your account. Checks the OIDC token against your policy, and mints the Cloudflare token or R2 credentials, or signs a token for another service. |
 | [`crates/cloudflare-sts-cli`](crates/cloudflare-sts-cli) | `nix profile install github:cf-contrib/cloudflare-sts` | The CLI, for people: `cloudflare-sts login`, then `cloudflare-sts exec --profile <profile> -- <command>` runs a command with the same environment the action sets, and revokes the token when it exits. |
 | [`crates/cloudflare-sts-sdk`](crates/cloudflare-sts-sdk) | A Rust crate in this workspace; not published | The broker's HTTP API: its [TypeSpec](crates/cloudflare-sts-sdk/openapi/sts/v1/stsv1.tsp), the OpenAPI document compiled from it, and the types, server traits and client generated from it; hand-written beside them, the health endpoints. The Worker builds on it. |
-| [`crates/cloudflare-sts-core`](crates/cloudflare-sts-core) | A Rust crate in this workspace; not published | OIDC tokens in Workers, verified and signed. The Worker builds on it, and cf-nix-cache can too. |
+| [`crates/cloudflare-sts-core`](crates/cloudflare-sts-core) | A Rust crate in this workspace; not published | OIDC tokens in Workers, verified and signed. The Worker builds on it, and cloudflare-nix can too. |
 | [`deployment/terraform`](deployment/terraform) | `//deployment/terraform?ref=<version>` | Deploys the released Worker with your policy, its bindings and its cron. |
 
 The action and the broker, with its Terraform module, are released together from one tag, so deploy the broker from the release whose action you use. The action talks only to the broker, never to the Cloudflare API.
 
-The broker takes OIDC tokens from any issuer you list: GitHub Actions, GitLab CI, HCP Terraform, or, for people, an identity provider such as [Cloudflare Access](crates/cloudflare-sts-api#people). Who gets what is in the policy's claim sets, the same rules [cf-nix-cache](https://github.com/cf-contrib/cf-nix-cache) uses.
+The broker takes OIDC tokens from any issuer you list: GitHub Actions, GitLab CI, HCP Terraform, or, for people, an identity provider such as [Cloudflare Access](crates/cloudflare-sts-api#people). Who gets what is in the policy's claim sets, the same rules [cloudflare-nix](https://github.com/cf-contrib/cloudflare-nix) uses.
 
-Other services can trust the broker too. A profile with an `audience` gets the caller a short-lived token the broker signs itself, for that service, which verifies it with the broker's published keys. [cf-nix-cache](https://github.com/cf-contrib/cf-nix-cache) is the first such service. See [Tokens for other services](crates/cloudflare-sts-api#tokens-for-other-services).
+Other services can trust the broker too. A profile with an `audience` gets the caller a short-lived token the broker signs itself, for that service, which verifies it with the broker's published keys. [cloudflare-nix](https://github.com/cf-contrib/cloudflare-nix) is the first such service. See [Tokens for other services](crates/cloudflare-sts-api#tokens-for-other-services).
 
 ## How it works
 

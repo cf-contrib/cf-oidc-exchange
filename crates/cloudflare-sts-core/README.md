@@ -4,7 +4,7 @@ OIDC tokens in Cloudflare Workers: verifying them, for any issuer (GitHub
 Actions, GitLab CI, Cloudflare Access, or a broker that issues its own), and
 signing them, for a Worker that is an issuer. cloudflare-sts verifies the
 tokens exchanges present with it and signs its own, and
-[cf-nix-cache](https://github.com/cf-contrib/cf-nix-cache) verifies the tokens
+[cloudflare-nix](https://github.com/cf-contrib/cloudflare-nix) verifies the tokens
 uploads present.
 
 Accepting a token takes two steps. `Providers::verify` validates it as a JWT, as RFC 7519

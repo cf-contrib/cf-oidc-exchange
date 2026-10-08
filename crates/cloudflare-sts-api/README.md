@@ -5,7 +5,7 @@
 > Access, …), matches its claims against your policy, and mints a short-lived
 > Cloudflare API token with exactly that profile's permissions, R2 credentials
 > limited to the caller's key prefix, or both. It knows no issuer by name: who
-> may do what is in the policy's claim sets, as in cf-nix-cache.
+> may do what is in the policy's claim sets, as in cloudflare-nix.
 
 [![CI](https://github.com/cf-contrib/cloudflare-sts/actions/workflows/ci.yml/badge.svg)](https://github.com/cf-contrib/cloudflare-sts/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](../../LICENSE)
@@ -197,7 +197,7 @@ A profile's `provider` can be left out when the policy has exactly one provider.
 
 ### Claim sets
 
-`claims`, on a provider or a profile, is a list of claim sets, as in cf-nix-cache. A token matches the list when it matches **any** set, and a set when it matches **all** its claims:
+`claims`, on a provider or a profile, is a list of claim sets, as in cloudflare-nix. A token matches the list when it matches **any** set, and a set when it matches **all** its claims:
 
 - A token gets a profile when it matches one of its provider's sets **and** one of the profile's.
 - A claim's value is one pattern: a string, a number or a boolean. Numbers and booleans compare as written in JSON, so unquoted YAML IDs work.
@@ -280,12 +280,12 @@ A profile's `bucket` gets the job [temporary R2 credentials](https://developers.
 
 ### Tokens for other services
 
-A profile with `audience: <service URL>` gives the caller a token the broker signs itself, for another service that trusts the broker, such as [cf-nix-cache](https://github.com/cf-contrib/cf-nix-cache). It has no `token` or `bucket`: who may use the service is decided by the profile's `claims`, like any other.
+A profile with `audience: <service URL>` gives the caller a token the broker signs itself, for another service that trusts the broker, such as [cloudflare-nix](https://github.com/cf-contrib/cloudflare-nix). It has no `token` or `bucket`: who may use the service is decided by the profile's `claims`, like any other.
 
 ```yaml
   - name: example-org/app:ci.build
     provider: com.github.actions
-    audience: https://cf-nix-cache.example.com
+    audience: https://cloudflare-nix-api.example.com
     claims:
       - repository_id: "200000003"      # example-org/app
         ref: refs/heads/main
@@ -478,7 +478,7 @@ R2 credentials are `r2.issued`, with the bucket, the filled-in prefixes and the 
 A token for another service is `token.issue`, with the audience and the token's `jti`, never the token:
 
 ```json
-{"level":"INFO","event":"token.issue","provider":"com.github.actions","profile":"example-org/app:ci.build","sub":"repo:example-org/app:ref:refs/heads/main","claims":"{\"ref\":\"refs/heads/main\",\"repository_owner_id\":\"100000001\"}","audience":"https://cf-nix-cache.example.com","jti":"<uuid>","expires_at":1790960440}
+{"level":"INFO","event":"token.issue","provider":"com.github.actions","profile":"example-org/app:ci.build","sub":"repo:example-org/app:ref:refs/heads/main","claims":"{\"ref\":\"refs/heads/main\",\"repository_owner_id\":\"100000001\"}","audience":"https://cloudflare-nix-api.example.com","jti":"<uuid>","expires_at":1790960440}
 ```
 
 Denials are `token.deny`, a warning, with the response's `error`, and its `error_description` as `message`. For the broker's own faults, the message is the full one the caller doesn't get:
@@ -518,7 +518,7 @@ The other events:
 
 ## Code
 
-The crate is laid out as cf-nix-cache's Worker is:
+The crate is laid out as cloudflare-nix's Worker is:
 
 | | |
 |---|---|
@@ -541,7 +541,7 @@ tests/run.sh
 
 It creates made-up secrets in a local Secrets Store, starts `wrangler dev` on
 port 8790, serves the stand-ins on 8791, and runs the tests one at a time.
-`wrangler.toml` is that setup, as in cf-nix-cache: a build with the
+`wrangler.toml` is that setup, as in cloudflare-nix: a build with the
 `stand-ins` feature, which takes Cloudflare's API from
 `CLOUDFLARE_STS_API_CLOUDFLARE_URL` (a release build never reads it), and a
 policy whose providers are the stand-ins' issuers. So a plain `wrangler dev`

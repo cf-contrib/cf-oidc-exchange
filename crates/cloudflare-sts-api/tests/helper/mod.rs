@@ -41,7 +41,7 @@ pub const ACCOUNT_ID: &str = "0123456789abcdef0123456789abcdef";
 pub const ZONE_ID: &str = "fedcba9876543210fedcba9876543210";
 pub const OWNER_ID: &str = "100000001";
 pub const USER_ID: &str = "300000004";
-pub const CACHE: &str = "https://cf-nix-cache.example.com";
+pub const CACHE: &str = "https://cloudflare-nix-api.example.com";
 
 /// The Cloudflare token `tests/run.sh` puts in the local Secrets Store, and its ID.
 pub const CLOUDFLARE_TOKEN: &str = "test-cloudflare-token";
