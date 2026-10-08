@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.0](https://github.com/cf-contrib/cloudflare-sts/compare/v0.20.0...v0.21.0) (2026-10-08)
+
+
+### Features
+
+* keep a sign-in with the provider's refresh tokens ([#101](https://github.com/cf-contrib/cloudflare-sts/issues/101)) ([7a88cdf](https://github.com/cf-contrib/cloudflare-sts/commit/7a88cdffe3eb78d7b266c33bc3543c430d18af52))
+
 ## [0.20.0](https://github.com/cf-contrib/cloudflare-sts/compare/v0.19.0...v0.20.0) (2026-10-08)
 
 
