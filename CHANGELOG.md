@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.19.0](https://github.com/cf-contrib/cloudflare-sts/compare/v0.18.0...v0.19.0) (2026-10-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* the Terraform module no longer warns when the broker isn't ready. Add tf-contrib/terraform-http-check with url = "${module.<name>.url}/health/ready" to keep the warning.
+
+### Features
+
+* leave the readiness check to terraform-http-check ([#97](https://github.com/cf-contrib/cloudflare-sts/issues/97)) ([90ac7ce](https://github.com/cf-contrib/cloudflare-sts/commit/90ac7ceb25a72e8a58ba33959e7af8618847c98d))
+
 ## [0.18.0](https://github.com/cf-contrib/cloudflare-sts/compare/v0.17.0...v0.18.0) (2026-10-08)
 
 
