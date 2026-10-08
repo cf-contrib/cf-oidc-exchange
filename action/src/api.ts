@@ -1,5 +1,5 @@
 // The broker's HTTP contract, as the action uses it: types only, which the action
-// type-checks against. The contract is crates/cf-sts-sdk's TypeSpec
+// type-checks against. The contract is crates/cloudflare-sts-sdk's TypeSpec
 // (openapi/sts/v1/stsv1.tsp); keep this file in step.
 
 /** What the presented `subject_token` is: an OIDC token, as `id_token` or `jwt`. */
@@ -12,7 +12,7 @@ export type SubjectTokenType = "urn:ietf:params:oauth:token-type:id_token" | "ur
  */
 export type IssuedTokenType =
   | "urn:ietf:params:oauth:token-type:access_token"
-  | "urn:cf-sts:params:oauth:token-type:r2_credentials"
+  | "urn:cloudflare-sts:params:oauth:token-type:r2_credentials"
   | "urn:ietf:params:oauth:token-type:jwt";
 
 /**

@@ -48,7 +48,7 @@ function parseCommandFile(path) {
  * @param {Record<string, string | undefined>} env
  */
 async function action(script, env) {
-  const dir = mkdtempSync(join(tmpdir(), "cf-sts-"));
+  const dir = mkdtempSync(join(tmpdir(), "cloudflare-sts-"));
   const files = { GITHUB_ENV: join(dir, "env"), GITHUB_STATE: join(dir, "state") };
   writeFileSync(files.GITHUB_ENV, "");
   writeFileSync(files.GITHUB_STATE, "");
@@ -98,7 +98,7 @@ describe("main", () => {
     expect(maskAt).toBeGreaterThanOrEqual(0);
     expect(out.some((l) => l.startsWith("::add-mask::stub-jwt."))).toBe(true);
     expect(r.stdout).toContain(
-      `cf-sts: minted token ${STUB_TOKEN_ID} (profile workers-deploy, expires 2026-09-28T12:15:00Z)`,
+      `cloudflare-sts: minted token ${STUB_TOKEN_ID} (profile workers-deploy, expires 2026-09-28T12:15:00Z)`,
     );
     // The token value itself only ever appears in the mask command.
     expect(out.filter((l) => l.includes(STUB_TOKEN)).length).toBe(1);
@@ -157,7 +157,7 @@ describe("main", () => {
     expect(r.env).toEqual({ CLOUDFLARE_ACCOUNT_ID: STUB_ACCOUNT_ID, ...BUCKET_ENV });
     expect(r.state).toEqual({ r2_expires_on: STUB_BUCKET.expires_on });
     expect(r.stdout).toContain(
-      "cf-sts: issued R2 credentials for bucket org-terraform-state under github.com/example-org/app/ (profile smoke-r2, expires 2026-09-28T12:15:00Z)",
+      "cloudflare-sts: issued R2 credentials for bucket org-terraform-state under github.com/example-org/app/ (profile smoke-r2, expires 2026-09-28T12:15:00Z)",
     );
     expect(r.stdout).not.toContain("minted token");
     // The secrets only ever appear in the mask commands.
@@ -221,13 +221,13 @@ describe("main", () => {
     stub = await startStub({ tokenFields });
     const r = await action("main.js", { ...oidcEnv(stub.url), INPUT_URL: stub.url });
     expect(r.code).toBe(1);
-    expect(r.stdout).toContain(`::error::cf-sts broker returned an invalid response: missing ${field}`);
+    expect(r.stdout).toContain(`::error::cloudflare-sts broker returned an invalid response: missing ${field}`);
     expect(r.env).toEqual({});
     expect(r.state).toEqual({});
   });
 
   it("explains a missing id-token permission", async () => {
-    const r = await action("main.js", { INPUT_URL: "https://cf-sts.example.com" });
+    const r = await action("main.js", { INPUT_URL: "https://cloudflare-sts-api.example.com" });
     expect(r.code).toBe(1);
     expect(r.stdout).toContain("::error::OIDC unavailable: add `permissions: id-token: write` to the job");
   });
@@ -239,7 +239,7 @@ describe("main", () => {
   });
 
   it("refuses plain-http brokers that aren't loopback", async () => {
-    const r = await action("main.js", { INPUT_URL: "http://cf-sts.example.com" });
+    const r = await action("main.js", { INPUT_URL: "http://cloudflare-sts-api.example.com" });
     expect(r.code).toBe(1);
     expect(r.stdout).toContain("url must use https");
   });
@@ -249,7 +249,7 @@ describe("main", () => {
     const r = await action("main.js", { ...oidcEnv(stub.url), INPUT_URL: stub.url });
     expect(r.code).toBe(1);
     expect(r.stdout).toContain(
-      "::error::cf-sts broker returned 400 (invalid_request: no profile matches the token): check that url matches",
+      "::error::cloudflare-sts broker returned 400 (invalid_request: no profile matches the token): check that url matches",
     );
     expect(r.env).toEqual({});
     expect(r.state).toEqual({});
@@ -259,7 +259,7 @@ describe("main", () => {
     stub = await startStub({ tokenStatus: 404 });
     const r = await action("main.js", { ...oidcEnv(stub.url), INPUT_URL: stub.url });
     expect(r.code).toBe(1);
-    expect(r.stdout).toContain("::error::cf-sts broker returned 404: the broker doesn't serve /oauth/token");
+    expect(r.stdout).toContain("::error::cloudflare-sts broker returned 404: the broker doesn't serve /oauth/token");
   });
 
   it("retries a flaky OIDC endpoint", async () => {
@@ -279,7 +279,7 @@ describe("post", () => {
       STATE_token_id: STUB_TOKEN_ID,
     });
     expect(r.code).toBe(0);
-    expect(r.stdout).toContain(`cf-sts: revoked token ${STUB_TOKEN_ID}`);
+    expect(r.stdout).toContain(`cloudflare-sts: revoked token ${STUB_TOKEN_ID}`);
     expect(stub.calls).toEqual([
       // RFC 7009: the token in a form body, not a header.
       {
@@ -296,7 +296,7 @@ describe("post", () => {
     const r = await action("post.js", { INPUT_URL: stub.url, STATE_r2_expires_on: STUB_BUCKET.expires_on });
     expect(r.code).toBe(0);
     expect(r.stdout).toContain(
-      "cf-sts: R2 temporary credentials can't be revoked; they expire at 2026-09-28T12:15:00Z",
+      "cloudflare-sts: R2 temporary credentials can't be revoked; they expire at 2026-09-28T12:15:00Z",
     );
     expect(stub.calls).toEqual([]);
   });
@@ -310,7 +310,7 @@ describe("post", () => {
       STATE_r2_expires_on: STUB_BUCKET.expires_on,
     });
     expect(r.stdout).toContain("they expire at 2026-09-28T12:15:00Z");
-    expect(r.stdout).toContain(`cf-sts: revoked token ${STUB_TOKEN_ID}`);
+    expect(r.stdout).toContain(`cloudflare-sts: revoked token ${STUB_TOKEN_ID}`);
   });
 
   it("does nothing when main didn't mint", async () => {
@@ -328,12 +328,14 @@ describe("post", () => {
       STATE_token_id: STUB_TOKEN_ID,
     });
     expect(r.code).toBe(0);
-    expect(r.stdout).toContain("::warning::cf-sts: revoking token stub-token-id returned 502; it expires on its own");
+    expect(r.stdout).toContain(
+      "::warning::cloudflare-sts: revoking token stub-token-id returned 502; it expires on its own",
+    );
   });
 
   it("warns instead of failing when the broker is unreachable", async () => {
     const r = await action("post.js", { INPUT_URL: "http://127.0.0.1:9", STATE_token: STUB_TOKEN });
     expect(r.code).toBe(0);
-    expect(r.stdout).toContain("::warning::cf-sts: revoking token");
+    expect(r.stdout).toContain("::warning::cloudflare-sts: revoking token");
   });
 });

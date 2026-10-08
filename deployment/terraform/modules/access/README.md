@@ -1,32 +1,32 @@
-# cf-sts Access module
+# cloudflare-sts Access module
 
-> Signing people in to [cf-sts](../../../..) through Cloudflare Access: an
-> Access for SaaS OIDC application that the [CLI](../../../../crates/cf-sts-cli)
+> Signing people in to [cloudflare-sts](../../../..) through Cloudflare Access: an
+> Access for SaaS OIDC application that the [CLI](../../../../crates/cloudflare-sts-cli)
 > signs in to, its policy, and the provider the [broker's module](../..)
 > takes for it.
 
 ```hcl
-module "cf_sts_access" {
-  source = "git::https://github.com/cf-contrib/cf-sts.git//deployment/terraform/modules/access?ref=v0.17.0" # x-release-please-version
+module "cloudflare_sts_access" {
+  source = "git::https://github.com/cf-contrib/cloudflare-sts.git//deployment/terraform/modules/access?ref=v0.17.0" # x-release-please-version
 
   account_id = var.account_id
   team_name  = "example" # example.cloudflareaccess.com
   emails     = ["alice@example.com", "bob@example.com"]
 }
 
-module "cf_sts" {
-  source = "git::https://github.com/cf-contrib/cf-sts.git//deployment/terraform?ref=v0.17.0" # x-release-please-version
+module "cloudflare_sts" {
+  source = "git::https://github.com/cf-contrib/cloudflare-sts.git//deployment/terraform?ref=v0.17.0" # x-release-please-version
 
   # ...
   oidc_providers = [
     # ... CI's providers
-    module.cf_sts_access.provider,
+    module.cloudflare_sts_access.provider,
   ]
 
   profiles = [
     {
       name     = "infra-admins:tofu-plan"
-      provider = module.cf_sts_access.provider.name
+      provider = module.cloudflare_sts_access.provider.name
       claims   = [{ email = "alice@example.com" }, { email = "bob@example.com" }]
       max_ttl  = "1h"
       bucket   = { name = "org-terraform-state", permission = "object-read-only" }
@@ -38,8 +38,8 @@ module "cf_sts" {
 Then, on each person's machine:
 
 ```sh
-cf-sts login --url https://cf-sts.example.com
-cf-sts exec --url https://cf-sts.example.com --profile infra-admins:tofu-plan -- tofu plan
+cloudflare-sts login --url https://cloudflare-sts-api.example.com
+cloudflare-sts exec --url https://cloudflare-sts-api.example.com --profile infra-admins:tofu-plan -- tofu plan
 ```
 
 ## What it creates
@@ -88,7 +88,7 @@ one.
 | `account_id` | yes | | Account with the Zero Trust organization. |
 | `team_name` | yes | | The team name, as in `<team_name>.cloudflareaccess.com`. |
 | `emails` | yes | | Who may sign in. At least one. |
-| `name` | no | `cf-sts` | The application's name, shown at sign-in, and its policy's prefix. |
+| `name` | no | `cloudflare-sts` | The application's name, shown at sign-in, and its policy's prefix. |
 | `token_lifetime` | no | `8h` | How long a sign-in lasts, `1m` to `24h`. Access's ID tokens expire with its access tokens. |
 | `provider_name` | no | `com.cloudflare.access` | The broker's name for the provider, which profiles name. |
 | `identity_provider_ids` | no | `[]` | The login methods allowed, by ID. Empty allows every one. |

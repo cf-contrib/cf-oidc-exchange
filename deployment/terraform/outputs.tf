@@ -10,5 +10,5 @@ output "worker_name" {
 
 output "release_tag" {
   value       = var.worker_dir != null ? "local" : data.github_release.this[0].release_tag
-  description = "cf-sts release that was deployed, or \"local\" for worker_dir."
+  description = "cloudflare-sts release that was deployed, or \"local\" for worker_dir."
 }
