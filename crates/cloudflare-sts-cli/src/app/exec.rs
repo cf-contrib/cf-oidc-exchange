@@ -79,16 +79,12 @@ impl LoginCommand {
                     SIGN_IN_TIMEOUT.as_secs() / 60
                 )
             })??;
-        let tokens = provider.redeem(&sign_in, &code).await?;
-        let identity = Identity::parse(tokens.id_token.clone())?;
+        let signed_in = provider.redeem(&sign_in, &code).await?;
+        let identity = Identity::parse(signed_in.id_token.clone())?;
         sign_in.check(&identity, &login.issuer)?;
 
-        let renews = tokens.refresh_token.is_some();
-        let login = Login {
-            id_token: tokens.id_token,
-            refresh_token: tokens.refresh_token,
-        };
-        self.store.save(broker.url(), &login)?;
+        let renews = signed_in.refresh_token.is_some();
+        self.store.save(broker.url(), &signed_in)?;
         info(format!(
             "signed in as {} (expires {}{})",
             identity.who(),

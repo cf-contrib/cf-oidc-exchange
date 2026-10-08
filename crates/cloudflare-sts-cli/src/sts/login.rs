@@ -17,7 +17,7 @@ use tokio::{
 };
 use url::Url;
 
-use super::Identity;
+use super::{Identity, Login};
 
 /// Every request to the provider gives up after this.
 const TIMEOUT: Duration = Duration::from_secs(30);
@@ -40,13 +40,6 @@ pub struct Provider {
     grant_types_supported: Vec<String>,
     #[serde(skip)]
     http: reqwest::Client,
-}
-
-/// Tokens is what the provider's token endpoint answers with: the ID token,
-/// and a refresh token where it issues them.
-pub struct Tokens {
-    pub id_token: String,
-    pub refresh_token: Option<String>,
 }
 
 impl Provider {
@@ -112,7 +105,7 @@ impl Provider {
 
     /// Redeems the authorization `code` for the ID token, with the PKCE
     /// verifier in place of a client secret.
-    pub async fn redeem(&self, sign_in: &Authorization, code: &str) -> Result<Tokens> {
+    pub async fn redeem(&self, sign_in: &Authorization, code: &str) -> Result<Login> {
         let form = [
             ("grant_type", "authorization_code"),
             ("code", code),
@@ -123,10 +116,10 @@ impl Provider {
         self.token(&form, "sign-in").await
     }
 
-    /// Trades `refresh_token` for a new ID token, as the public client
-    /// `client_id`: no secret, as the sign-in had none. The provider may
-    /// answer with a new refresh token too, replacing this one.
-    pub async fn refresh(&self, client_id: &str, refresh_token: &str) -> Result<Tokens> {
+    /// Trades `refresh_token` for a new login, as the public client
+    /// `client_id`: no secret, as the sign-in had none. Its refresh token is a
+    /// new one where the provider rotates them, and none where it doesn't.
+    pub async fn refresh(&self, client_id: &str, refresh_token: &str) -> Result<Login> {
         let form = [
             ("grant_type", "refresh_token"),
             ("refresh_token", refresh_token),
@@ -135,9 +128,10 @@ impl Provider {
         self.token(&form, "refresh").await
     }
 
-    /// Posts `form` to the token endpoint, and returns its tokens; `what` the
-    /// provider refused, if it did.
-    async fn token(&self, form: &[(&str, &str)], what: &str) -> Result<Tokens> {
+    /// Posts `form` to the token endpoint, and returns the login it answers
+    /// with: its ID token, and a refresh token where it issues them. `what` is
+    /// what the provider refused, if it did.
+    async fn token(&self, form: &[(&str, &str)], what: &str) -> Result<Login> {
         #[derive(Deserialize)]
         struct Reply {
             id_token: Option<String>,
@@ -158,7 +152,7 @@ impl Provider {
             .await
             .map_err(|_| anyhow!("the provider's token endpoint answered {status}"))?;
         match (reply.id_token, reply.error) {
-            (Some(id_token), None) if status.is_success() => Ok(Tokens {
+            (Some(id_token), None) if status.is_success() => Ok(Login {
                 id_token,
                 refresh_token: reply.refresh_token.filter(|token| !token.is_empty()),
             }),

@@ -208,9 +208,9 @@ pub async fn current(store: &dyn Store, broker: &Broker) -> Result<Identity> {
     }
 }
 
-/// Trades `refresh_token` for a new ID token from the provider that issued
-/// `identity`, checks it, and stores it with the refresh token the provider
-/// sent with it, or else this one.
+/// Trades `refresh_token` for a new login from the provider that issued
+/// `identity`, checks its ID token, and stores it, with the refresh token the
+/// provider sent, or else this one.
 async fn renew(
     store: &dyn Store,
     broker: &Broker,
@@ -220,15 +220,13 @@ async fn renew(
     let issuer = &identity.claims.iss;
     let client_id = broker.client_id(issuer).await?;
     let provider = Provider::discover(issuer).await?;
-    let tokens = provider.refresh(&client_id, refresh_token).await?;
-    let renewed = Identity::parse(tokens.id_token.clone())?;
+    let mut login = provider.refresh(&client_id, refresh_token).await?;
+    let renewed = Identity::parse(login.id_token.clone())?;
     check_refreshed(&renewed, issuer, &client_id)?;
-    let login = Login {
-        id_token: tokens.id_token,
-        refresh_token: tokens
-            .refresh_token
-            .or_else(|| Some(refresh_token.to_string())),
-    };
+    // A provider that doesn't rotate them keeps taking this one.
+    login
+        .refresh_token
+        .get_or_insert_with(|| refresh_token.to_string());
     store.save(broker.url(), &login)?;
     Ok(renewed)
 }
