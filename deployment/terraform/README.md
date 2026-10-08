@@ -299,6 +299,7 @@ worker-build --release   # worker_dir = ".../crates/cloudflare-sts-api/build"
 | `url` | The broker's URL: use it as the action's `url`. It's the policy's `issuer`, and providers' `audience` unless they name another. |
 | `worker_name` | The Worker's script name. |
 | `release_tag` | The release deployed, or `local` with `worker_dir`. |
+| `worker_modules_sha256` | SHA-256 of each module the Worker version uploads, `index.js` and `index_bg.wasm` (of the wasm's base64 text). The plan shows the modules themselves only as `(sensitive value)`: this says which one changed. |
 
 ## Notes
 
