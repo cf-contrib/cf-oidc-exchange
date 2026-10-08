@@ -72,7 +72,7 @@ impl Provider {
 
     /// Returns true if the provider issues refresh tokens. Asking one that
     /// doesn't for `offline_access` fails the sign-in, as Access does.
-    pub fn refreshes(&self) -> bool {
+    pub fn issues_refresh_tokens(&self) -> bool {
         self.grant_types_supported
             .iter()
             .any(|grant| grant == "refresh_token" || grant == "refresh_tokens")
@@ -81,7 +81,7 @@ impl Provider {
     /// Returns the scopes the sign-in asks for: `offline_access` too where
     /// the provider refreshes.
     pub fn scopes(&self) -> String {
-        if self.refreshes() {
+        if self.issues_refresh_tokens() {
             format!("{SCOPES} {OFFLINE_ACCESS}")
         } else {
             SCOPES.to_string()
