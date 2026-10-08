@@ -111,14 +111,7 @@ impl Broker {
     /// metadata: the one `name`d, or else the only one. With several and none
     /// named, it fails rather than ask, so an agent never waits on it.
     pub async fn identity_provider(&self, name: Option<&str>) -> Result<IdentityProvider> {
-        let path = "/.well-known/oauth-authorization-server";
-        let metadata = self.call(path, self.client.metadata()).await?.map_err(
-            |err: ApiOpError<MetadataApiError>| match err {
-                ApiOpError::Api(api) => self.answered(path, &api),
-                ApiOpError::Transport(err) => self.unreachable(&err),
-            },
-        )?;
-        let mut providers = metadata.identity_providers.unwrap_or_default();
+        let mut providers = self.identity_providers().await?;
         let names = || {
             let names: Vec<&str> = providers.iter().map(|p| p.name.as_str()).collect();
             names.join(", ")
@@ -153,6 +146,34 @@ impl Broker {
             }
         };
         Ok(providers.swap_remove(found))
+    }
+
+    /// Returns the client ID people sign in to `issuer` as, from the broker's
+    /// metadata: what a login from it is renewed as.
+    pub async fn client_id(&self, issuer: &str) -> Result<String> {
+        self.identity_providers()
+            .await?
+            .into_iter()
+            .find(|provider| provider.issuer == issuer)
+            .map(|provider| provider.client_id)
+            .ok_or_else(|| {
+                anyhow!(
+                    "the broker at {} no longer names the identity provider {issuer}",
+                    self.url
+                )
+            })
+    }
+
+    /// Returns the identity providers the broker's metadata lists.
+    async fn identity_providers(&self) -> Result<Vec<IdentityProvider>> {
+        let path = "/.well-known/oauth-authorization-server";
+        let metadata = self.call(path, self.client.metadata()).await?.map_err(
+            |err: ApiOpError<MetadataApiError>| match err {
+                ApiOpError::Api(api) => self.answered(path, &api),
+                ApiOpError::Transport(err) => self.unreachable(&err),
+            },
+        )?;
+        Ok(metadata.identity_providers.unwrap_or_default())
     }
 
     /// Awaits `request`, giving up after [`TIMEOUT`].

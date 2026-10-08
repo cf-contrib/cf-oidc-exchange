@@ -71,7 +71,7 @@ async fn run(program: Program) -> Result<u8> {
             let store = Box::new(Keychain);
             let writer = Box::new(std::io::stdout());
             let mut command = WhoamiCommand { store, writer };
-            command.execute(&args)?;
+            command.execute(&args).await?;
             Ok(0)
         }
         ProgramCommand::Exec(args) => {

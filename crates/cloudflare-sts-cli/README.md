@@ -22,10 +22,10 @@ It needs a [broker](../cloudflare-sts-api) with a provider people sign in with, 
 
 | Command | |
 |---|---|
-| `cloudflare-sts login [--provider P] [--no-browser]` | Signs in at an identity provider the broker's metadata lists, in your browser, and keeps the ID token in the OS keychain under the broker's URL. With several, `--provider` picks one; it fails rather than asks. |
-| `cloudflare-sts logout` | Removes it. |
-| `cloudflare-sts whoami [--json]` | Shows who you're signed in as, and until when. Fails when you're not, or the login has expired: `cloudflare-sts whoami -q \|\| cloudflare-sts login`. |
-| `cloudflare-sts exec [--profile P] [--ttl D] -- <command…>` | Exchanges the login for what the profile grants, runs the command with it, and revokes the token when the command exits. |
+| `cloudflare-sts login [--provider P] [--no-browser]` | Signs in at an identity provider the broker's metadata lists, in your browser, and keeps the ID token in the OS keychain under the broker's URL, with a refresh token where the provider issues them. With several, `--provider` picks one; it fails rather than asks. |
+| `cloudflare-sts logout` | Removes them. |
+| `cloudflare-sts whoami [--json]` | Shows who you're signed in as, until when, and whether the login renews. Renews it as `exec` would, and fails when you're not signed in, or the login has expired and can't be renewed: `cloudflare-sts whoami -q \|\| cloudflare-sts login`. |
+| `cloudflare-sts exec [--profile P] [--ttl D] -- <command…>` | Exchanges the login for what the profile grants, runs the command with it, and revokes the token when the command exits. A login that has expired, or is about to, is renewed first, where it can be. |
 
 | Flag | Environment | |
 |---|---|---|
@@ -84,8 +84,26 @@ e.g. `jq -n -f backend.jq`.
 ## Rules
 
 - **No secret on argv, stdout or stderr.** The Cloudflare token and R2 keys reach the command's environment only.
-- **Nothing persists but the ID token,** in the OS keychain (Keychain on macOS, the Secret Service on Linux, Credential Manager on Windows).
-- **Nothing but `login` opens a browser or waits for you.** An expired login fails at once: `your login expired at …; run 'cloudflare-sts login'`.
+- **Nothing persists but the login:** the ID token, and its refresh token where the provider issues one, in the OS keychain (Keychain on macOS, the Secret Service on Linux, Credential Manager on Windows), each in its own entry.
+- **Nothing but `login` opens a browser or waits for you.** An expired login is renewed with its refresh token, with no browser, or else fails at once: `your login expired at …; run 'cloudflare-sts login'`.
+
+## Staying signed in
+
+Some providers' ID tokens are short-lived: Cloudflare Access's last 5 minutes.
+Where the provider issues refresh tokens, `login` asks for `offline_access`,
+and `exec` and `whoami` trade the refresh token for a new ID token when the
+stored one has expired, or will within a minute, as the public client, with no
+secret. The provider checks you again each time: Access against the
+application's policy, until the refresh token itself expires. `login` asks for
+one only where the provider's Discovery document lists the `refresh_token`
+grant, or Access's `refresh_tokens`: asking one that doesn't fails the
+sign-in.
+
+For Access, set the application's refresh token lifetime, and the
+`refresh_tokens` grant type that goes with it: terraform-cloudflare-access's
+[`saas-oidc`](https://github.com/tf-contrib/terraform-cloudflare-access/tree/main/modules/saas-oidc)
+does both from `refresh_token_lifetime`. Keep it under the organization's
+session duration, which otherwise wins.
 
 ## AI agents
 

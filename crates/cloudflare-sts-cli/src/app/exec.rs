@@ -19,7 +19,7 @@ pub type Open = Box<dyn FnMut(&str) -> Result<()>>;
 
 /// Sign in through an identity provider the broker lists.
 pub struct LoginCommand {
-    /// Store the ID token is kept in.
+    /// Store the login is kept in.
     pub store: Box<dyn Store>,
     /// Opens the sign-in link, unless `--no-browser`.
     pub open: Open,
@@ -79,14 +79,21 @@ impl LoginCommand {
                     SIGN_IN_TIMEOUT.as_secs() / 60
                 )
             })??;
-        let identity = Identity::parse(provider.redeem(&sign_in, &code).await?)?;
+        let signed_in = provider.redeem(&sign_in, &code).await?;
+        let identity = Identity::parse(signed_in.id_token.clone())?;
         sign_in.check(&identity, &login.issuer)?;
 
-        self.store.save(broker.url(), identity.token())?;
+        let renews = signed_in.refresh_token.is_some();
+        self.store.save(broker.url(), &signed_in)?;
         info(format!(
-            "signed in as {} (expires {})",
+            "signed in as {} (expires {}{})",
             identity.who(),
-            rfc3339(identity.claims().exp)
+            rfc3339(identity.claims().exp),
+            if renews {
+                "; renewed with a refresh token until the provider says no"
+            } else {
+                ""
+            }
         ));
         Ok(())
     }
@@ -94,7 +101,7 @@ impl LoginCommand {
 
 /// Forget the stored login.
 pub struct LogoutCommand {
-    /// Store the ID token is kept in.
+    /// Store the login is kept in.
     pub store: Box<dyn Store>,
 }
 
@@ -113,19 +120,29 @@ impl LogoutCommand {
 
 /// Show who the stored login is for, and until when.
 pub struct WhoamiCommand {
-    /// Store the ID token is kept in.
+    /// Store the login is kept in.
     pub store: Box<dyn Store>,
     /// Where the answer is written: stdout.
     pub writer: Box<dyn Write>,
 }
 
 impl WhoamiCommand {
-    /// Execute the WhoamiCommand with the provided arguments. Fails when
-    /// there's no login or it has expired, so a script or an agent can check
-    /// before `exec`; `-q` prints nothing but that.
-    pub fn execute(&mut self, args: &WhoamiCommandArgs) -> Result<()> {
+    /// Execute the WhoamiCommand with the provided arguments. Renews the
+    /// login as `exec` would, and fails when there's none or it has expired
+    /// and can't be renewed, so a script or an agent can check before `exec`;
+    /// `-q` prints nothing but that.
+    pub async fn execute(&mut self, args: &WhoamiCommandArgs) -> Result<()> {
         let url = BrokerUrl::parse(args.parent.url.as_deref())?;
-        let identity = stored(self.store.as_ref(), &url)?;
+        let broker = Broker::new(&url);
+        // Shown as stored when it can't be renewed, with why it failed.
+        let (identity, failure) = match current(self.store.as_ref(), &broker).await {
+            Ok(identity) => (identity, None),
+            Err(err) => (stored(self.store.as_ref(), &url)?.0, Some(err)),
+        };
+        let renews = self
+            .store
+            .load(&url)?
+            .is_some_and(|login| login.refresh_token.is_some());
         let claims = identity.claims();
         let expires = rfc3339(claims.exp);
         let lapsed = identity.is_expired();
@@ -140,6 +157,7 @@ impl WhoamiCommand {
                     "broker": url.as_str(),
                     "expires_at": expires,
                     "expired": lapsed,
+                    "renews": renews,
                 });
                 writeln!(w, "{answer:#}")?;
             } else {
@@ -155,10 +173,13 @@ impl WhoamiCommand {
                 writeln!(w, "issuer   {}", claims.iss)?;
                 writeln!(w, "broker   {url}")?;
                 writeln!(w, "expires  {expires} ({left})")?;
+                if renews {
+                    writeln!(w, "renews   with a refresh token")?;
+                }
             }
         }
         if lapsed {
-            return Err(expired(claims.exp));
+            return Err(failure.unwrap_or_else(|| expired(claims.exp)));
         }
         Ok(())
     }
@@ -166,7 +187,7 @@ impl WhoamiCommand {
 
 /// Run a command with Cloudflare credentials, revoked when it exits.
 pub struct ExecCommand {
-    /// Store the ID token is kept in.
+    /// Store the login is kept in.
     pub store: Box<dyn Store>,
 }
 
@@ -175,7 +196,7 @@ impl ExecCommand {
     /// command's exit code.
     pub async fn execute(&mut self, args: &ExecCommandArgs) -> Result<u8> {
         let broker = Broker::new(&BrokerUrl::parse(args.parent.url.as_deref())?);
-        let identity = current(self.store.as_ref(), broker.url())?;
+        let identity = current(self.store.as_ref(), &broker).await?;
         let profile = args.profile.clone().filter(|p| !p.is_empty());
         let ttl = args.ttl.clone().filter(|t| !t.is_empty());
         debug(format!(
@@ -234,12 +255,26 @@ mod tests {
 
     /// A store shared with the test, holding a login for `stub`'s broker.
     fn signed_in(stub: &Stub, claims: Value) -> Shared {
+        signed_in_with(stub, claims, None)
+    }
+
+    /// A store holding a login for `stub`'s broker, with the refresh token
+    /// its provider takes.
+    fn signed_in_with_refresh_token(stub: &Stub, claims: Value) -> Shared {
+        signed_in_with(stub, claims, Some(stub.refresh_token()))
+    }
+
+    fn signed_in_with(stub: &Stub, claims: Value, refresh_token: Option<String>) -> Shared {
         let store = Shared::default();
         let mut all = json!({ "iss": stub.issuer(), "sub": "user-0001", "email": "alice@example.com", "aud": stub::CLIENT_ID, "exp": chrono::Utc::now().timestamp() + 3600 });
         for (key, value) in claims.as_object().unwrap() {
             all[key] = value.clone();
         }
-        store.save(&stub.url(), &jwt(all)).unwrap();
+        let login = Login {
+            id_token: jwt(all),
+            refresh_token,
+        };
+        store.save(&stub.url(), &login).unwrap();
         store
     }
 
@@ -248,11 +283,11 @@ mod tests {
     struct Shared(Rc<Memory>);
 
     impl Store for Shared {
-        fn load(&self, broker: &BrokerUrl) -> Result<Option<String>> {
+        fn load(&self, broker: &BrokerUrl) -> Result<Option<Login>> {
             self.0.load(broker)
         }
-        fn save(&self, broker: &BrokerUrl, id_token: &str) -> Result<()> {
-            self.0.save(broker, id_token)
+        fn save(&self, broker: &BrokerUrl, login: &Login) -> Result<()> {
+            self.0.save(broker, login)
         }
         fn delete(&self, broker: &BrokerUrl) -> Result<bool> {
             self.0.delete(broker)
@@ -312,7 +347,7 @@ mod tests {
         let store = Shared::default();
         login(&stub, &store).await.unwrap();
 
-        let identity = current(&store, &stub.url()).unwrap();
+        let identity = current(&store, &Broker::new(&stub.url())).await.unwrap();
         assert_eq!(identity.who(), "alice@example.com");
         assert!(identity.is_for(stub::CLIENT_ID));
 
@@ -320,7 +355,7 @@ mod tests {
         let (authorize, token) = stub.sign_in();
         assert_eq!(authorize["client_id"], stub::CLIENT_ID);
         assert_eq!(authorize["code_challenge_method"], "S256");
-        assert_eq!(authorize["scope"], SCOPES);
+        assert_eq!(authorize["scope"], format!("{SCOPES} {OFFLINE_ACCESS}"));
         assert_eq!(token["grant_type"], "authorization_code");
         assert_eq!(
             challenge(&token["code_verifier"]),
@@ -328,6 +363,23 @@ mod tests {
         );
         assert_eq!(token["redirect_uri"], authorize["redirect_uri"]);
         assert!(!token.contains_key("client_secret"));
+
+        // The provider refreshes, so the login keeps its refresh token.
+        let login = store.load(&stub.url()).unwrap().unwrap();
+        assert_eq!(login.refresh_token, Some(stub.refresh_token()));
+    }
+
+    #[tokio::test]
+    async fn login_asks_for_no_refresh_token_where_the_provider_issues_none() {
+        let stub = Stub::start().await;
+        stub.issue_no_refresh_tokens();
+        let store = Shared::default();
+        login(&stub, &store).await.unwrap();
+
+        // Asking for offline_access would fail the sign-in, as Access does.
+        assert_eq!(stub.sign_in().0["scope"], SCOPES);
+        let login = store.load(&stub.url()).unwrap().unwrap();
+        assert_eq!(login.refresh_token, None);
     }
 
     #[tokio::test]
@@ -388,7 +440,7 @@ mod tests {
         command.execute(&args).unwrap();
     }
 
-    fn whoami(stub: &Stub, store: &Shared, flags: &[&str]) -> (Result<()>, String) {
+    async fn whoami(stub: &Stub, store: &Shared, flags: &[&str]) -> (Result<()>, String) {
         let mut line = vec!["whoami"];
         line.extend(flags);
         let ProgramCommand::Whoami(args) = parse(stub, &line) else {
@@ -399,14 +451,14 @@ mod tests {
             store: Box::new(store.clone()),
             writer: Box::new(writer.clone()),
         };
-        (command.execute(&args), writer.text())
+        (command.execute(&args).await, writer.text())
     }
 
     #[tokio::test]
     async fn whoami_says_who_and_until_when() {
         let stub = Stub::start().await;
         let store = signed_in(&stub, json!({}));
-        let (result, text) = whoami(&stub, &store, &[]);
+        let (result, text) = whoami(&stub, &store, &[]).await;
         result.unwrap();
         assert!(
             text.starts_with("email    alice@example.com\nsubject  user-0001\n"),
@@ -421,13 +473,14 @@ mod tests {
             "{text}"
         );
 
-        let (result, text) = whoami(&stub, &store, &["--json"]);
+        let (result, text) = whoami(&stub, &store, &["--json"]).await;
         result.unwrap();
         let answer: Value = serde_json::from_str(&text).unwrap();
         assert_eq!(answer["email"], "alice@example.com");
         assert_eq!(answer["expired"], false);
+        assert_eq!(answer["renews"], false);
 
-        let (result, text) = whoami(&stub, &store, &["-q"]);
+        let (result, text) = whoami(&stub, &store, &["-q"]).await;
         result.unwrap();
         assert_eq!(text, "");
     }
@@ -435,7 +488,7 @@ mod tests {
     #[tokio::test]
     async fn whoami_fails_without_a_login_or_once_it_has_expired() {
         let stub = Stub::start().await;
-        let (result, _) = whoami(&stub, &Shared::default(), &[]);
+        let (result, _) = whoami(&stub, &Shared::default(), &[]).await;
         assert!(
             result
                 .unwrap_err()
@@ -444,7 +497,7 @@ mod tests {
         );
 
         let store = signed_in(&stub, json!({ "exp": 1_790_000_000 }));
-        let (result, text) = whoami(&stub, &store, &[]);
+        let (result, text) = whoami(&stub, &store, &[]).await;
         assert!(text.ends_with("(expired)\n"), "{text}");
         assert!(
             result
@@ -565,5 +618,68 @@ mod tests {
             "{err}"
         );
         assert!(stub.exchanges().is_empty());
+    }
+
+    #[tokio::test]
+    async fn exec_renews_an_expired_login_with_its_refresh_token() {
+        let stub = Stub::start().await;
+        let store = signed_in_with_refresh_token(&stub, json!({ "exp": 1_790_000_000 }));
+        assert_eq!(exec(&stub, &store, "true").await.unwrap(), 0);
+
+        // Renewed as the public client, with no secret, then exchanged.
+        let request = stub.refresh_requests().pop().unwrap();
+        assert_eq!(request["grant_type"], "refresh_token");
+        assert_eq!(request["refresh_token"], "stub-refresh-token-0");
+        assert_eq!(request["client_id"], stub::CLIENT_ID);
+        assert!(!request.contains_key("client_secret"));
+        assert_eq!(stub.exchanges().len(), 1);
+
+        // The new ID token and the rotated refresh token are kept.
+        let (identity, refresh_token) = stored(&store, &stub.url()).unwrap();
+        assert!(!identity.is_expired());
+        assert_eq!(refresh_token.as_deref(), Some("stub-refresh-token-1"));
+        assert_eq!(stub.exchanges()[0]["subject_token"], identity.token());
+    }
+
+    #[tokio::test]
+    async fn exec_renews_a_login_about_to_expire() {
+        let stub = Stub::start().await;
+        let soon = chrono::Utc::now().timestamp() + 20;
+        let store = signed_in_with_refresh_token(&stub, json!({ "exp": soon }));
+        assert_eq!(exec(&stub, &store, "true").await.unwrap(), 0);
+        assert_eq!(stub.refresh_requests().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn exec_says_to_sign_in_when_the_provider_denies_the_refresh() {
+        let stub = Stub::start().await;
+        stub.deny_refresh();
+        let store = signed_in_with_refresh_token(&stub, json!({ "exp": 1_790_000_000 }));
+        let err = exec(&stub, &store, "true").await.unwrap_err().to_string();
+        assert_eq!(
+            err,
+            "your login expired at 2026-09-21T14:13:20Z, and renewing it failed (the provider refused the refresh (invalid_grant): the refresh token has expired); run 'cloudflare-sts login'"
+        );
+        assert!(stub.exchanges().is_empty());
+    }
+
+    #[tokio::test]
+    async fn whoami_renews_an_expired_login_and_says_it_renews() {
+        let stub = Stub::start().await;
+        let store = signed_in_with_refresh_token(&stub, json!({ "exp": 1_790_000_000 }));
+        let (result, text) = whoami(&stub, &store, &[]).await;
+        result.unwrap();
+        assert!(!text.contains("(expired)"), "{text}");
+        assert!(text.ends_with("renews   with a refresh token\n"), "{text}");
+
+        let (result, text) = whoami(&stub, &store, &["--json"]).await;
+        result.unwrap();
+        let answer: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(answer["renews"], true);
+        assert_eq!(
+            stub.refresh_requests().len(),
+            1,
+            "renewed once, then still fresh"
+        );
     }
 }
