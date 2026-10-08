@@ -27,8 +27,8 @@ tokio = { version = "1", features = ["io-util", "macros", "net", "process", "rt"
 reqwest = { version = "0.13", default-features = false, features = ["form", "json", "rustls"] }
 url = "2"
 # PKCE (RFC 7636) and the state and nonce: random bytes, SHA-256, base64url.
-getrandom = "0.3"
-sha2 = "0.10"
+getrandom = "0.4"
+sha2 = "0.11"
 base64 = "0.23"
 # The browser the login opens.
 open = "5"
