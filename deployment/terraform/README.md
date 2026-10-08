@@ -6,7 +6,7 @@
 > build is needed.
 
 ```hcl
-module "cloudflare_sts" {
+module "cloudflare_sts_api" {
   source = "git::https://github.com/cf-contrib/cloudflare-sts.git//deployment/terraform?ref=v0.17.0" # x-release-please-version
 
   account_id              = var.account_id
@@ -33,8 +33,8 @@ module "cloudflare_sts" {
   ]
 }
 
-output "sts_url" {
-  value = module.cloudflare_sts.url
+output "cloudflare_sts_api_url" {
+  value = module.cloudflare_sts_api.url
 }
 ```
 
@@ -70,7 +70,7 @@ $EDITOR main.tf                                # oidc_providers and profiles; se
 export CLOUDFLARE_API_TOKEN=...                # deploy token, not the broker's Cloudflare token
 tofu init
 tofu apply
-curl -fsS "$(tofu output -raw sts_url)/health/ready"   # 500 if the policy is wrong, 503 if a secret can't be read
+curl -fsS "$(tofu output -raw cloudflare_sts_api_url)/health/ready"   # 500 if the policy is wrong, 503 if a secret can't be read
 ```
 
 Terraform only references the secret by store ID and name. The token's value
@@ -169,7 +169,7 @@ module "cloudflare_access_saas_oidc" {
   emails        = ["alice@example.com", "bob@example.com"]
 }
 
-module "cloudflare_sts" {
+module "cloudflare_sts_api" {
   # ...
   oidc_providers = [
     # ... CI's providers
