@@ -100,7 +100,7 @@ in the policy's own format (see the [broker's README](../../crates/cloudflare-st
 - `oidc_providers`: the OIDC issuers the broker trusts. Typed, and checked at
   plan time: every provider needs at least one claim set, and none may be empty. `audience` defaults to the
   broker's URL, which is what the action asks for. For people signing in
-  through Cloudflare Access, the [Access module](modules/access) outputs one.
+  through Cloudflare Access, see [People](#people).
 - `profiles`: what callers may get. Untyped, because a token policy's
   `resources` are flat in one profile and nested in another, as Cloudflare
   takes them; the plan checks each has a name and a claim set, and the broker
@@ -148,6 +148,72 @@ A policy kept in a file still works: `profiles = yamldecode(file("${path.module}
 The policy is bound as `CLOUDFLARE_STS_API_POLICY`, compact JSON. A Worker
 variable holds at most 5 KB, and the plan fails on a policy over that. Every
 policy change creates a new Worker version.
+
+## People
+
+People sign in to the [CLI](../../crates/cloudflare-sts-cli) through an
+identity provider that issues them an ID token. For Cloudflare Access, the
+[`saas-oidc`](https://github.com/tofu-contrib/terraform-cloudflare-access/tree/main/modules/saas-oidc)
+module of terraform-cloudflare-access creates the application, a public client
+with PKCE, and the policy that says who may sign in. Give the broker a provider
+for it:
+
+```hcl
+module "access_oidc" {
+  source = "git::https://github.com/tofu-contrib/terraform-cloudflare-access.git//modules/saas-oidc?ref=v0.1.0"
+
+  account_id    = var.account_id
+  team_name     = "example" # example.cloudflareaccess.com
+  name          = "cloudflare-sts"
+  redirect_uris = ["http://127.0.0.1:8250/callback"] # where the CLI listens
+  emails        = ["alice@example.com", "bob@example.com"]
+}
+
+module "cloudflare_sts" {
+  # ...
+  oidc_providers = [
+    # ... CI's providers
+    {
+      name      = "com.cloudflare.access"
+      issuer    = module.access_oidc.issuer
+      client_id = module.access_oidc.client_id # people's ID tokens' audience
+      claims    = [{ iss = module.access_oidc.issuer }]
+    },
+  ]
+
+  profiles = [
+    {
+      name     = "infra-admins:tofu-plan"
+      provider = "com.cloudflare.access"
+      claims   = [{ email = "alice@example.com" }, { email = "bob@example.com" }]
+      max_ttl  = "1h"
+      bucket   = { name = "org-terraform-state", permission = "object-read-only" }
+    },
+  ]
+}
+```
+
+The provider's one claim set pins the application's own issuer; the profiles
+name the people, by `email`. Then, on each person's machine:
+
+```sh
+cloudflare-sts login --url https://cloudflare-sts-api.example.com
+cloudflare-sts exec --url https://cloudflare-sts-api.example.com --profile infra-admins:tofu-plan -- tofu plan
+```
+
+Access decides who can sign in; the broker's profiles decide what each person
+gets. Keep people's profiles to what they need locally, such as read-only
+state, and leave applies to CI.
+
+Upgrading from the Access module that was in this repo (before v0.18.0):
+
+- Switch its `source` to the one above.
+- Add `name = "cloudflare-sts"` and
+  `redirect_uris = ["http://127.0.0.1:8250/callback"]`, which were its
+  defaults.
+- Replace `module.<name>.provider` with the provider above.
+- If you rename the module block, add a `moved` block from its old address, so
+  the application, and with it its client ID and issuer, stays.
 
 ## Upgrading and pinning
 
