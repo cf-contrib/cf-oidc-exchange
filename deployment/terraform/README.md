@@ -77,6 +77,27 @@ Terraform only references the secret by store ID and name. The token's value
 never enters Terraform state or the plan. Rotate it by replacing the secret in
 Secrets Store; the broker reads it on every request.
 
+### Checking it's ready
+
+The module doesn't check the broker itself. To have every plan and apply warn
+when it isn't ready, add
+[terraform-http-check](https://github.com/tf-contrib/terraform-http-check)
+beside it:
+
+```hcl
+module "cloudflare_sts_api_ready" {
+  source = "git::https://github.com/tf-contrib/terraform-http-check.git?ref=v0.1.0"
+
+  url  = "${module.cloudflare_sts_api.url}/health/ready"
+  hint = "503 if a secret can't be read, 500 if a binding or the policy is wrong. Workers Logs says why (event unready or misconfigured)."
+}
+```
+
+A secret Secrets Store won't hand over then shows up in your apply, not in the
+first job that asks for a token. It's a warning, never an error, and gives up
+within about 25s on a broker it can't reach. Leave it out where plans can't
+reach the broker, such as runners whose egress is allowlisted.
+
 
 ## URL
 
@@ -283,9 +304,6 @@ worker-build --release   # worker_dir = ".../crates/cloudflare-sts-api/build"
 
 - Workers Logs is enabled so the audit log is kept. Add Logpush if you need it
   for longer.
-- After every plan and apply, a `check` asks `<url>/health/ready` and warns
-  unless it's `200`: a secret Secrets Store won't hand over shows up in your
-  apply, not in the first job that asks for a token.
 - Worker bindings are reset on every version upload, so every binding the broker
   needs is declared here.
 - `tofu test` plans the module with mocked providers (no credentials needed) and
