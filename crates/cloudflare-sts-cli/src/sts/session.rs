@@ -1,5 +1,6 @@
-//! The stored login: the person's ID token and what its claims say, the OS
-//! keychain it's kept in between runs, and when it expires.
+//! The stored login: the person's ID token and what its claims say, the
+//! refresh token that renews it where the provider issues one, the OS
+//! keychain they're kept in between runs, and when the login expires.
 
 use anyhow::{Context, Result, anyhow};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -7,18 +8,34 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::{BrokerUrl, hinted};
+use super::{Broker, BrokerUrl, Provider, check_refreshed, hinted};
 
 /// The keychain service ID tokens are stored under, one per broker URL.
 const SERVICE: &str = "cloudflare-sts";
 
-/// Store keeps the person's ID token between runs, under the broker's URL.
+/// The keychain service refresh tokens are stored under: an entry of their
+/// own, so an ID token's is as it always was, and neither outgrows what a
+/// keychain entry holds.
+const REFRESH_SERVICE: &str = "cloudflare-sts-refresh";
+
+/// How close to expiring an ID token is renewed, where it can be: soon enough
+/// that it hasn't expired by the time the broker reads it.
+const RENEW_AHEAD: i64 = 60;
+
+/// Login is what `login` keeps: the ID token, and the refresh token that
+/// renews it, where the provider issues one.
+pub struct Login {
+    pub id_token: String,
+    pub refresh_token: Option<String>,
+}
+
+/// Store keeps the person's login between runs, under the broker's URL.
 pub trait Store {
-    /// Returns the ID token stored for `broker`, if any.
-    fn load(&self, broker: &BrokerUrl) -> Result<Option<String>>;
-    /// Stores `id_token` for `broker`, replacing any.
-    fn save(&self, broker: &BrokerUrl, id_token: &str) -> Result<()>;
-    /// Removes the ID token stored for `broker`, and returns whether there was one.
+    /// Returns the login stored for `broker`, if any.
+    fn load(&self, broker: &BrokerUrl) -> Result<Option<Login>>;
+    /// Stores `login` for `broker`, replacing any.
+    fn save(&self, broker: &BrokerUrl, login: &Login) -> Result<()>;
+    /// Removes the login stored for `broker`, and returns whether there was one.
     fn delete(&self, broker: &BrokerUrl) -> Result<bool>;
 }
 
@@ -27,32 +44,56 @@ pub trait Store {
 pub struct Keychain;
 
 impl Keychain {
-    fn entry(broker: &BrokerUrl) -> Result<keyring::Entry> {
-        keyring::Entry::new(SERVICE, broker.as_str()).context("the OS keychain failed")
+    fn entry(service: &str, broker: &BrokerUrl) -> Result<keyring::Entry> {
+        keyring::Entry::new(service, broker.as_str()).context("the OS keychain failed")
     }
-}
 
-impl Store for Keychain {
-    fn load(&self, broker: &BrokerUrl) -> Result<Option<String>> {
-        match Self::entry(broker)?.get_password() {
+    fn get(service: &str, broker: &BrokerUrl) -> Result<Option<String>> {
+        match Self::entry(service, broker)?.get_password() {
             Ok(token) => Ok(Some(token)),
             Err(keyring::Error::NoEntry) => Ok(None),
             Err(err) => Err(err).context("the OS keychain failed"),
         }
     }
 
-    fn save(&self, broker: &BrokerUrl, id_token: &str) -> Result<()> {
-        Self::entry(broker)?
-            .set_password(id_token)
-            .context("the OS keychain failed")
-    }
-
-    fn delete(&self, broker: &BrokerUrl) -> Result<bool> {
-        match Self::entry(broker)?.delete_credential() {
+    fn remove(service: &str, broker: &BrokerUrl) -> Result<bool> {
+        match Self::entry(service, broker)?.delete_credential() {
             Ok(()) => Ok(true),
             Err(keyring::Error::NoEntry) => Ok(false),
             Err(err) => Err(err).context("the OS keychain failed"),
         }
+    }
+}
+
+impl Store for Keychain {
+    fn load(&self, broker: &BrokerUrl) -> Result<Option<Login>> {
+        let Some(id_token) = Self::get(SERVICE, broker)? else {
+            return Ok(None);
+        };
+        let refresh_token = Self::get(REFRESH_SERVICE, broker)?;
+        Ok(Some(Login {
+            id_token,
+            refresh_token,
+        }))
+    }
+
+    fn save(&self, broker: &BrokerUrl, login: &Login) -> Result<()> {
+        Self::entry(SERVICE, broker)?
+            .set_password(&login.id_token)
+            .context("the OS keychain failed")?;
+        match &login.refresh_token {
+            Some(token) => Self::entry(REFRESH_SERVICE, broker)?
+                .set_password(token)
+                .context("the OS keychain failed"),
+            // A login without one renews nothing: an older one's goes.
+            None => Self::remove(REFRESH_SERVICE, broker).map(|_| ()),
+        }
+    }
+
+    fn delete(&self, broker: &BrokerUrl) -> Result<bool> {
+        let id_token = Self::remove(SERVICE, broker)?;
+        let refresh_token = Self::remove(REFRESH_SERVICE, broker)?;
+        Ok(id_token || refresh_token)
     }
 }
 
@@ -114,7 +155,12 @@ impl Identity {
 
     /// Returns true once it has expired.
     pub fn is_expired(&self) -> bool {
-        self.claims.exp <= Utc::now().timestamp()
+        self.expires_within(0)
+    }
+
+    /// Returns true if it has expired, or will within `seconds`.
+    pub fn expires_within(&self, seconds: i64) -> bool {
+        self.claims.exp <= Utc::now().timestamp() + seconds
     }
 
     /// Returns true if its `aud` names `client_id`.
@@ -127,25 +173,64 @@ impl Identity {
     }
 }
 
-/// Returns the login stored for `broker`, expired or not.
-pub fn stored(store: &dyn Store, broker: &BrokerUrl) -> Result<Identity> {
-    let Some(token) = store.load(broker)? else {
+/// Returns the login stored for `broker`, expired or not: its identity, and
+/// the refresh token that renews it, if there is one.
+pub fn stored(store: &dyn Store, broker: &BrokerUrl) -> Result<(Identity, Option<String>)> {
+    let Some(login) = store.load(broker)? else {
         return Err(hinted(
             format!("not signed in to {broker}"),
             "run 'cloudflare-sts login'",
         ));
     };
-    Identity::parse(token)
+    Ok((Identity::parse(login.id_token)?, login.refresh_token))
 }
 
-/// Returns the login stored for `broker`, to exchange: refused before asking
-/// the broker when it has expired, since only `login` may open a browser.
-pub fn current(store: &dyn Store, broker: &BrokerUrl) -> Result<Identity> {
-    let identity = stored(store, broker)?;
-    if identity.is_expired() {
-        return Err(expired(identity.claims.exp));
+/// Returns the login stored for `broker`, to exchange. One that has expired,
+/// or is about to, is renewed with its refresh token where it has one, with no
+/// browser; one that can't be is refused before asking the broker, since only
+/// `login` may open a browser.
+pub async fn current(store: &dyn Store, broker: &Broker) -> Result<Identity> {
+    let (identity, refresh_token) = stored(store, broker.url())?;
+    let Some(refresh_token) = refresh_token.filter(|_| identity.expires_within(RENEW_AHEAD)) else {
+        if identity.is_expired() {
+            return Err(expired(identity.claims.exp));
+        }
+        return Ok(identity);
+    };
+    match renew(store, broker, &identity, &refresh_token).await {
+        Ok(renewed) => Ok(renewed),
+        // Not yet expired, it still does, this once.
+        Err(_) if !identity.is_expired() => Ok(identity),
+        Err(err) => Err(anyhow!(
+            "your login expired at {}, and renewing it failed ({err:#}); run 'cloudflare-sts login'",
+            rfc3339(identity.claims.exp)
+        )),
     }
-    Ok(identity)
+}
+
+/// Trades `refresh_token` for a new ID token from the provider that issued
+/// `identity`, checks it, and stores it with the refresh token the provider
+/// sent with it, or else this one.
+async fn renew(
+    store: &dyn Store,
+    broker: &Broker,
+    identity: &Identity,
+    refresh_token: &str,
+) -> Result<Identity> {
+    let issuer = &identity.claims.iss;
+    let client_id = broker.client_id(issuer).await?;
+    let provider = Provider::discover(issuer).await?;
+    let tokens = provider.refresh(&client_id, refresh_token).await?;
+    let renewed = Identity::parse(tokens.id_token.clone())?;
+    check_refreshed(&renewed, issuer, &client_id)?;
+    let login = Login {
+        id_token: tokens.id_token,
+        refresh_token: tokens
+            .refresh_token
+            .or_else(|| Some(refresh_token.to_string())),
+    };
+    store.save(broker.url(), &login)?;
+    Ok(renewed)
 }
 
 /// Returns the error for a login that expired at `exp`.
@@ -221,20 +306,26 @@ pub(super) mod tests {
         }
     }
 
-    #[test]
-    fn says_to_sign_in_when_theres_no_login_or_it_has_expired() {
+    #[tokio::test]
+    async fn says_to_sign_in_when_theres_no_login_or_it_has_expired() {
         let store = Memory::default();
-        let err = current(&store, &broker()).err().unwrap().to_string();
+        let broker = Broker::new(&broker());
+        let err = current(&store, &broker).await.err().unwrap().to_string();
         assert_eq!(
             err,
             "not signed in to https://cloudflare-sts-api.example.com\n  hint: run 'cloudflare-sts login'"
         );
 
         let token = jwt(json!({ "iss": "i", "sub": "s", "exp": 1_790_000_000 }));
-        store.save(&broker(), &token).unwrap();
-        // Shown by whoami, but never exchanged.
-        assert!(stored(&store, &broker()).is_ok());
-        let err = current(&store, &broker()).err().unwrap().to_string();
+        let login = Login {
+            id_token: token,
+            refresh_token: None,
+        };
+        store.save(broker.url(), &login).unwrap();
+        // Shown by whoami, but never exchanged: with no refresh token, it
+        // can't be renewed either.
+        assert!(stored(&store, broker.url()).is_ok());
+        let err = current(&store, &broker).await.err().unwrap().to_string();
         assert_eq!(
             err,
             "your login expired at 2026-09-21T14:13:20Z; run 'cloudflare-sts login'"

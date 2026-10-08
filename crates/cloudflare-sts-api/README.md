@@ -213,7 +213,7 @@ The broker takes OIDC tokens only. For people, use an identity provider that iss
 
 Give that provider the `client_id` people sign in as, and the broker's [metadata](#http-api) lists it in `identity_providers`, with its name and issuer. An ID token's `aud` is the client it was issued to, so the `client_id` is the provider's `audience` too: leave `audience` out, or set it to the same. Several providers can have one. The [CLI](../cloudflare-sts-cli) reads the list, so `cloudflare-sts login --url <broker>` is all a person sets, with `--provider <name>` to pick one when there are several.
 
-Access for SaaS with Cloudflare as the login method hasn't been tried end to end yet ([#53](https://github.com/cf-contrib/cloudflare-sts/issues/53)): which claims its ID tokens carry, and how long they last.
+Access's ID tokens carry `email`, `sub` and the application's `iss`, and last 5 minutes, whatever the application's access token lifetime ([#53](https://github.com/cf-contrib/cloudflare-sts/issues/53)). For a sign-in that lasts, give the application a refresh token lifetime (`saas-oidc`'s `refresh_token_lifetime`): the CLI then [renews the login](../cloudflare-sts-cli#staying-signed-in) without a browser.
 
 Keep people's profiles to what they need locally, such as read-only state, and keep `apply` in CI behind `environment: prod` with required reviewers.
 

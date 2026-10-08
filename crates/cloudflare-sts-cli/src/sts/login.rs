@@ -1,7 +1,9 @@
 //! Signing in: OpenID Connect with a public client, PKCE (RFC 7636) and a
 //! loopback redirect (RFC 8252). The identity provider's endpoints from its
 //! Discovery document, one sign-in's secrets, the redirect the browser comes
-//! back to, and the checks the ID token has to pass.
+//! back to, and the checks the ID token has to pass. And staying signed in:
+//! where the provider issues refresh tokens, a new ID token for one, with no
+//! browser.
 
 use std::{collections::HashMap, time::Duration};
 
@@ -23,14 +25,28 @@ const TIMEOUT: Duration = Duration::from_secs(30);
 /// What the sign-in asks for: an ID token saying who the person is.
 pub const SCOPES: &str = "openid email profile";
 
+/// What it asks for too where the provider refreshes: a refresh token.
+pub const OFFLINE_ACCESS: &str = "offline_access";
+
 /// Provider is an OpenID Provider's endpoints, from its Discovery document.
 #[derive(Debug, Deserialize)]
 pub struct Provider {
     issuer: String,
     authorization_endpoint: Url,
     token_endpoint: Url,
+    /// Whether it refreshes: `refresh_token` (RFC 8414), or Cloudflare
+    /// Access's `refresh_tokens`, listed only where the application allows it.
+    #[serde(default)]
+    grant_types_supported: Vec<String>,
     #[serde(skip)]
     http: reqwest::Client,
+}
+
+/// Tokens is what the provider's token endpoint answers with: the ID token,
+/// and a refresh token where it issues them.
+pub struct Tokens {
+    pub id_token: String,
+    pub refresh_token: Option<String>,
 }
 
 impl Provider {
@@ -61,6 +77,24 @@ impl Provider {
         Ok(provider)
     }
 
+    /// Returns true if the provider issues refresh tokens. Asking one that
+    /// doesn't for `offline_access` fails the sign-in, as Access does.
+    pub fn refreshes(&self) -> bool {
+        self.grant_types_supported
+            .iter()
+            .any(|grant| grant == "refresh_token" || grant == "refresh_tokens")
+    }
+
+    /// Returns the scopes the sign-in asks for: `offline_access` too where
+    /// the provider refreshes.
+    pub fn scopes(&self) -> String {
+        if self.refreshes() {
+            format!("{SCOPES} {OFFLINE_ACCESS}")
+        } else {
+            SCOPES.to_string()
+        }
+    }
+
     /// Returns the link the person signs in at.
     pub fn link(&self, sign_in: &Authorization) -> String {
         let mut link = self.authorization_endpoint.clone();
@@ -68,7 +102,7 @@ impl Provider {
             .append_pair("response_type", "code")
             .append_pair("client_id", &sign_in.client_id)
             .append_pair("redirect_uri", &sign_in.redirect_uri)
-            .append_pair("scope", SCOPES)
+            .append_pair("scope", &self.scopes())
             .append_pair("state", &sign_in.state)
             .append_pair("nonce", &sign_in.nonce)
             .append_pair("code_challenge", &challenge(&sign_in.verifier))
@@ -78,13 +112,7 @@ impl Provider {
 
     /// Redeems the authorization `code` for the ID token, with the PKCE
     /// verifier in place of a client secret.
-    pub async fn redeem(&self, sign_in: &Authorization, code: &str) -> Result<String> {
-        #[derive(Deserialize)]
-        struct Reply {
-            id_token: Option<String>,
-            error: Option<String>,
-            error_description: Option<String>,
-        }
+    pub async fn redeem(&self, sign_in: &Authorization, code: &str) -> Result<Tokens> {
         let form = [
             ("grant_type", "authorization_code"),
             ("code", code),
@@ -92,10 +120,35 @@ impl Provider {
             ("client_id", &sign_in.client_id),
             ("code_verifier", &sign_in.verifier),
         ];
+        self.token(&form, "sign-in").await
+    }
+
+    /// Trades `refresh_token` for a new ID token, as the public client
+    /// `client_id`: no secret, as the sign-in had none. The provider may
+    /// answer with a new refresh token too, replacing this one.
+    pub async fn refresh(&self, client_id: &str, refresh_token: &str) -> Result<Tokens> {
+        let form = [
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token),
+            ("client_id", client_id),
+        ];
+        self.token(&form, "refresh").await
+    }
+
+    /// Posts `form` to the token endpoint, and returns its tokens; `what` the
+    /// provider refused, if it did.
+    async fn token(&self, form: &[(&str, &str)], what: &str) -> Result<Tokens> {
+        #[derive(Deserialize)]
+        struct Reply {
+            id_token: Option<String>,
+            refresh_token: Option<String>,
+            error: Option<String>,
+            error_description: Option<String>,
+        }
         let response = self
             .http
             .post(self.token_endpoint.clone())
-            .form(&form)
+            .form(form)
             .send()
             .await
             .context("the provider's token endpoint failed")?;
@@ -105,14 +158,34 @@ impl Provider {
             .await
             .map_err(|_| anyhow!("the provider's token endpoint answered {status}"))?;
         match (reply.id_token, reply.error) {
-            (Some(id_token), None) if status.is_success() => Ok(id_token),
+            (Some(id_token), None) if status.is_success() => Ok(Tokens {
+                id_token,
+                refresh_token: reply.refresh_token.filter(|token| !token.is_empty()),
+            }),
             (_, Some(error)) => {
                 let description = reply.error_description.unwrap_or_default();
-                bail!("the provider refused the sign-in ({error}): {description}")
+                bail!("the provider refused the {what} ({error}): {description}")
             }
             _ => bail!("the provider's token endpoint answered {status} with no ID token"),
         }
     }
+}
+
+/// Checks a refreshed ID token, from `issuer` for `client_id`: as a sign-in's
+/// is checked, but without a nonce, which only a sign-in sends (OpenID Connect
+/// Core §12.2).
+pub fn check_refreshed(identity: &Identity, issuer: &str, client_id: &str) -> Result<()> {
+    let claims = identity.claims();
+    if claims.iss != issuer {
+        bail!("the provider's refreshed ID token is from {}", claims.iss);
+    }
+    if !identity.is_for(client_id) {
+        bail!("the provider's refreshed ID token is for another client");
+    }
+    if identity.is_expired() {
+        bail!("the provider's refreshed ID token has already expired");
+    }
+    Ok(())
 }
 
 /// Authorization is what one sign-in sends the provider, and checks its ID
