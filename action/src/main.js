@@ -26,7 +26,7 @@ function requireStrings(obj, fields, at = "") {
   for (const field of fields) {
     const value = /** @type {Record<string, unknown>} */ (obj)[field];
     if (typeof value !== "string" || value === "") {
-      throw new Error(`cf-sts broker returned an invalid response: missing ${at}${field}`);
+      throw new Error(`cloudflare-sts broker returned an invalid response: missing ${at}${field}`);
     }
   }
 }
@@ -59,7 +59,9 @@ try {
     const { error, error_description } = /** @type {Partial<BrokerError>} */ (await response.json().catch(() => ({})));
     const said = [error, error_description].filter(Boolean).join(": ");
     const hint = response.status === 404 ? NOT_FOUND : HINTS[error ?? ""];
-    throw new Error(`cf-sts broker returned ${response.status}${said ? ` (${said})` : ""}${hint ? `: ${hint}` : ""}`);
+    throw new Error(
+      `cloudflare-sts broker returned ${response.status}${said ? ` (${said})` : ""}${hint ? `: ${hint}` : ""}`,
+    );
   }
 
   // The action asks for Cloudflare credentials, whose response always names the account.
@@ -69,7 +71,7 @@ try {
   if (t.access_token !== undefined || t.token_id !== undefined) {
     requireStrings(t, ["access_token", "token_id"]);
     if (!Number.isFinite(t.expires_at))
-      throw new Error("cf-sts broker returned an invalid response: missing expires_at");
+      throw new Error("cloudflare-sts broker returned an invalid response: missing expires_at");
   }
   const b = t.bucket;
   if (b !== undefined) {
@@ -79,11 +81,11 @@ try {
       "bucket.",
     );
     if (!Array.isArray(b.prefixes)) {
-      throw new Error("cf-sts broker returned an invalid response: missing bucket.prefixes");
+      throw new Error("cloudflare-sts broker returned an invalid response: missing bucket.prefixes");
     }
   }
   if (t.access_token === undefined && b === undefined) {
-    throw new Error("cf-sts broker returned an invalid response: missing token and bucket");
+    throw new Error("cloudflare-sts broker returned an invalid response: missing token and bucket");
   }
 
   write("GITHUB_ENV", "CLOUDFLARE_ACCOUNT_ID", t.account_id);
@@ -92,7 +94,7 @@ try {
     write("GITHUB_ENV", "CLOUDFLARE_API_TOKEN", t.access_token);
     write("GITHUB_STATE", "token", t.access_token); // read by post.js as STATE_token
     write("GITHUB_STATE", "token_id", t.token_id);
-    console.log(`cf-sts: minted token ${t.token_id} (profile ${t.profile}, expires ${rfc3339(t.expires_at)})`);
+    console.log(`cloudflare-sts: minted token ${t.token_id} (profile ${t.profile}, expires ${rfc3339(t.expires_at)})`);
   }
 
   if (b !== undefined) {
@@ -112,7 +114,7 @@ try {
     write("GITHUB_STATE", "r2_expires_on", b.expires_on);
     const scope = b.prefixes.length > 0 ? ` under ${b.prefixes.join(", ")}` : "";
     console.log(
-      `cf-sts: issued R2 credentials for bucket ${b.name}${scope} (profile ${t.profile}, expires ${b.expires_on})`,
+      `cloudflare-sts: issued R2 credentials for bucket ${b.name}${scope} (profile ${t.profile}, expires ${b.expires_on})`,
     );
   }
 } catch (err) {

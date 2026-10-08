@@ -18,7 +18,7 @@ export const STUB_BUCKET = {
   expires_on: "2026-09-28T12:15:00Z",
 };
 const ACCESS_TOKEN = "urn:ietf:params:oauth:token-type:access_token";
-const R2_CREDENTIALS = "urn:cf-sts:params:oauth:token-type:r2_credentials";
+const R2_CREDENTIALS = "urn:cloudflare-sts:params:oauth:token-type:r2_credentials";
 /** A profile the stub answers as one with only a bucket: no token, just STUB_BUCKET. */
 export const STUB_R2_PROFILE = "smoke-r2";
 

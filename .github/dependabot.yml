@@ -37,7 +37,7 @@ updates:
       prefix: "chore"
       include: "scope"
   - package-ecosystem: "npm"
-    directory: "/crates/cf-sts-sdk/openapi"
+    directory: "/crates/cloudflare-sts-sdk/openapi"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10

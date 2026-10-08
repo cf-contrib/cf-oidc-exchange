@@ -488,91 +488,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cf-sts-api"
-version = "0.8.0"
-dependencies = [
- "async-trait",
- "axum",
- "base64",
- "cf-sts-core",
- "cf-sts-sdk",
- "chrono",
- "cloudflare",
- "rand_chacha",
- "reqwest",
- "rsa",
- "serde",
- "serde_json",
- "serde_urlencoded",
- "tokio",
- "tower-layer",
- "tower-service",
- "tracing",
- "tracing-subscriber",
- "tracing-web",
- "worker",
-]
-
-[[package]]
-name = "cf-sts-cli"
-version = "0.17.0"
-dependencies = [
- "anyhow",
- "assert_cmd",
- "axum",
- "base64",
- "cf-sts-sdk",
- "chrono",
- "clap",
- "console",
- "getrandom 0.3.4",
- "keyring",
- "libc",
- "open",
- "predicates",
- "reqwest",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tokio",
- "url",
-]
-
-[[package]]
-name = "cf-sts-core"
-version = "0.8.0"
-dependencies = [
- "base64",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "web-sys",
- "worker",
-]
-
-[[package]]
-name = "cf-sts-sdk"
-version = "0.8.0"
-dependencies = [
- "async-trait",
- "axum",
- "chrono",
- "futures-util",
- "http-body-util",
- "jsonschema 0.58.5",
- "mime",
- "openapi-to-rust 0.19.0",
- "reqwest",
- "reqwest-middleware",
- "serde",
- "serde_json",
- "serde_urlencoded",
- "thiserror",
- "tokio",
- "url",
-]
-
-[[package]]
 name = "cfg-if"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -679,6 +594,91 @@ dependencies = [
  "tracing",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "cloudflare-sts-api"
+version = "0.8.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "base64",
+ "chrono",
+ "cloudflare",
+ "cloudflare-sts-core",
+ "cloudflare-sts-sdk",
+ "rand_chacha",
+ "reqwest",
+ "rsa",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+ "tokio",
+ "tower-layer",
+ "tower-service",
+ "tracing",
+ "tracing-subscriber",
+ "tracing-web",
+ "worker",
+]
+
+[[package]]
+name = "cloudflare-sts-cli"
+version = "0.17.0"
+dependencies = [
+ "anyhow",
+ "assert_cmd",
+ "axum",
+ "base64",
+ "chrono",
+ "clap",
+ "cloudflare-sts-sdk",
+ "console",
+ "getrandom 0.3.4",
+ "keyring",
+ "libc",
+ "open",
+ "predicates",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "url",
+]
+
+[[package]]
+name = "cloudflare-sts-core"
+version = "0.8.0"
+dependencies = [
+ "base64",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "web-sys",
+ "worker",
+]
+
+[[package]]
+name = "cloudflare-sts-sdk"
+version = "0.8.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "chrono",
+ "futures-util",
+ "http-body-util",
+ "jsonschema 0.58.5",
+ "mime",
+ "openapi-to-rust 0.19.0",
+ "reqwest",
+ "reqwest-middleware",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+ "thiserror",
+ "tokio",
+ "url",
 ]
 
 [[package]]

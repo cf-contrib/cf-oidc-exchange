@@ -8,7 +8,7 @@ const id = state("token_id");
 const r2ExpiresOn = state("r2_expires_on");
 
 if (r2ExpiresOn) {
-  console.log(`cf-sts: R2 temporary credentials can't be revoked; they expire at ${r2ExpiresOn}`);
+  console.log(`cloudflare-sts: R2 temporary credentials can't be revoked; they expire at ${r2ExpiresOn}`);
 }
 
 if (token) {
@@ -24,11 +24,13 @@ if (token) {
       signal: AbortSignal.timeout(30_000),
     });
     if (response.status === 200) {
-      console.log(`cf-sts: revoked token ${id}`);
+      console.log(`cloudflare-sts: revoked token ${id}`);
     } else {
-      warning(`cf-sts: revoking token ${id} returned ${response.status}; it expires on its own`);
+      warning(`cloudflare-sts: revoking token ${id} returned ${response.status}; it expires on its own`);
     }
   } catch (err) {
-    warning(`cf-sts: revoking token ${id} failed (${err instanceof Error ? err.message : err}); it expires on its own`);
+    warning(
+      `cloudflare-sts: revoking token ${id} failed (${err instanceof Error ? err.message : err}); it expires on its own`,
+    );
   }
 }

@@ -5,7 +5,7 @@ variable "account_id" {
 
 variable "hostname" {
   type        = string
-  description = "The broker's hostname, which is also the OIDC audience: <worker_name>.<subdomain>.workers.dev, or a custom domain such as cf-sts.example.com (needs zone_id)."
+  description = "The broker's hostname, which is also the OIDC audience: <worker_name>.<subdomain>.workers.dev, or a custom domain such as cloudflare-sts-api.example.com (needs zone_id)."
 
   validation {
     condition     = can(regex("^[a-z0-9-]+(\\.[a-z0-9-]+)+$", var.hostname))
@@ -97,7 +97,7 @@ variable "defaults" {
 
 variable "release_tag" {
   type        = string
-  description = "cf-sts release to deploy, e.g. v1.2.3, or \"latest\". Defaults to the release this module comes from."
+  description = "cloudflare-sts release to deploy, e.g. v1.2.3, or \"latest\". Defaults to the release this module comes from."
   default     = "v0.17.0" # x-release-please-version
 }
 
@@ -116,7 +116,7 @@ variable "checksums_sha256" {
 variable "worker_name" {
   type        = string
   description = "Cloudflare Worker script name."
-  default     = "cf-sts"
+  default     = "cloudflare-sts-api"
 }
 
 variable "worker_compatibility_date" {

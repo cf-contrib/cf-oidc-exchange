@@ -3,7 +3,7 @@
   "packages": {
     ".": {
       "release-type": "simple",
-      "package-name": "cf-sts",
+      "package-name": "cloudflare-sts",
       "include-v-in-tag": true,
       "include-v-in-release-name": true,
       "include-component-in-tag": false,
@@ -15,11 +15,11 @@
         "deployment/terraform/README.md",
         "deployment/terraform/variables.tf",
         "deployment/terraform/modules/access/README.md",
-        "crates/cf-sts-cli/Cargo.toml",
+        "crates/cloudflare-sts-cli/Cargo.toml",
         {
           "type": "toml",
           "path": "Cargo.lock",
-          "jsonpath": "$.package[?(@.name.value=='cf-sts-cli')].version"
+          "jsonpath": "$.package[?(@.name.value=='cloudflare-sts-cli')].version"
         }
       ]
     }

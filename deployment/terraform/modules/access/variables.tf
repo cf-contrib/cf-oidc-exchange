@@ -26,12 +26,12 @@ variable "emails" {
 variable "name" {
   type        = string
   description = "The Access application's name, shown at sign-in, and its policy's prefix."
-  default     = "cf-sts"
+  default     = "cloudflare-sts"
 }
 
 variable "token_lifetime" {
   type        = string
-  description = "How long a sign-in lasts: the application's access token lifetime, which its ID tokens follow, so how long until cf-sts login again. Minutes or hours, from 1m to 24h. Access's own default is 5m."
+  description = "How long a sign-in lasts: the application's access token lifetime, which its ID tokens follow, so how long until cloudflare-sts login again. Minutes or hours, from 1m to 24h. Access's own default is 5m."
   default     = "8h"
 
   validation {
@@ -58,12 +58,12 @@ variable "identity_provider_ids" {
 
 variable "redirect_uris" {
   type        = list(string)
-  description = "Where Access may send the authorization code. The cf-sts CLI listens on http://127.0.0.1:8250/callback."
+  description = "Where Access may send the authorization code. The cloudflare-sts CLI listens on http://127.0.0.1:8250/callback."
   default     = ["http://127.0.0.1:8250/callback"]
 }
 
 variable "scopes" {
   type        = list(string)
-  description = "The OIDC scopes the application grants. The cf-sts CLI asks for openid, email and profile."
+  description = "The OIDC scopes the application grants. The cloudflare-sts CLI asks for openid, email and profile."
   default     = ["openid", "email", "profile"]
 }

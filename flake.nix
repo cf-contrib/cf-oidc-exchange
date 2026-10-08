@@ -1,5 +1,5 @@
 {
-  description = "cf-sts - exchange an OIDC identity for short-lived Cloudflare credentials.";
+  description = "cloudflare-sts - exchange an OIDC identity for short-lived Cloudflare credentials.";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -26,10 +26,10 @@
         };
 
         rust-toolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
-        cli = (pkgs.lib.importTOML ./crates/cf-sts-cli/Cargo.toml).package;
+        cli = (pkgs.lib.importTOML ./crates/cloudflare-sts-cli/Cargo.toml).package;
       in
       {
-        # The CLI, for people: `nix profile install github:cf-contrib/cf-sts`.
+        # The CLI, for people: `nix profile install github:cf-contrib/cloudflare-sts`.
         # A personal tool, like gh, not a dependency of the repos it's used in.
         packages.default = pkgs.rustPlatform.buildRustPackage {
           pname = cli.name;
@@ -49,15 +49,15 @@
           doCheck = false;
           meta = {
             inherit (cli) description;
-            homepage = "https://github.com/cf-contrib/cf-sts";
+            homepage = "https://github.com/cf-contrib/cloudflare-sts";
             license = pkgs.lib.licenses.mit;
-            mainProgram = "cf-sts";
+            mainProgram = "cloudflare-sts";
             platforms = pkgs.lib.platforms.unix;
           };
         };
 
         devShells.default = pkgs.mkShell {
-          name = "cf-sts";
+          name = "cloudflare-sts";
           packages = [
             # The action, and the TypeSpec the Worker's API is compiled from.
             pkgs.nodejs_24
