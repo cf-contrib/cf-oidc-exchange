@@ -168,7 +168,7 @@ impl Provider {
 /// Checks a refreshed ID token, from `issuer` for `client_id`: as a sign-in's
 /// is checked, but without a nonce, which only a sign-in sends (OpenID Connect
 /// Core §12.2).
-pub fn check_refreshed(identity: &Identity, issuer: &str, client_id: &str) -> Result<()> {
+pub fn check_refreshed_id_token(identity: &Identity, issuer: &str, client_id: &str) -> Result<()> {
     let claims = identity.claims();
     if claims.iss != issuer {
         bail!("the provider's refreshed ID token is from {}", claims.iss);

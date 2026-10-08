@@ -8,7 +8,7 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::{Broker, BrokerUrl, Provider, check_refreshed, hinted};
+use super::{Broker, BrokerUrl, Provider, check_refreshed_id_token, hinted};
 
 /// The keychain service ID tokens are stored under, one per broker URL.
 const SERVICE: &str = "cloudflare-sts";
@@ -222,7 +222,7 @@ async fn renew(
     let provider = Provider::discover(issuer).await?;
     let mut login = provider.refresh(&client_id, refresh_token).await?;
     let renewed = Identity::parse(login.id_token.clone())?;
-    check_refreshed(&renewed, issuer, &client_id)?;
+    check_refreshed_id_token(&renewed, issuer, &client_id)?;
     // A provider that doesn't rotate them keeps taking this one.
     login
         .refresh_token
