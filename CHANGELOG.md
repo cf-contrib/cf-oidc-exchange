@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.0](https://github.com/cf-contrib/cloudflare-sts/compare/v0.19.0...v0.20.0) (2026-10-08)
+
+
+### Features
+
+* keep the Worker's modules out of the plan ([#99](https://github.com/cf-contrib/cloudflare-sts/issues/99)) ([6a93b32](https://github.com/cf-contrib/cloudflare-sts/commit/6a93b32288f95871b8db15921f9fe6b63c853fab))
+
 ## [0.19.0](https://github.com/cf-contrib/cloudflare-sts/compare/v0.18.0...v0.19.0) (2026-10-08)
 
 
