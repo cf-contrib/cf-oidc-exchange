@@ -83,18 +83,18 @@ struct World {
     /// The names of the identity providers the metadata lists. All are the
     /// one at `/idp`.
     identity_providers: Vec<String>,
-    deny: bool,
+    deny_sign_in: bool,
     /// Claims set on the provider's ID tokens, over its own.
     claims: Value,
     authorize: Fields,
     token: Fields,
     /// Whether the provider issues refresh tokens, as its Discovery document
-    /// says; whether it refuses them; the one it takes now, which each
-    /// renewal replaces; and the forms renewals sent.
-    refreshes: bool,
-    refuse_refresh: bool,
+    /// says; whether it denies them; the one it takes now, which each refresh
+    /// replaces; and the forms refresh requests sent.
+    issues_refresh_tokens: bool,
+    deny_refresh: bool,
     refresh_token: String,
-    renewals: Vec<Fields>,
+    refresh_requests: Vec<Fields>,
 }
 
 /// R2 credentials, as the broker returns them.
@@ -133,14 +133,14 @@ impl Stub {
             exchanges: vec![],
             revoked: vec![],
             identity_providers: vec!["access".into()],
-            deny: false,
+            deny_sign_in: false,
             claims: json!({}),
             authorize: Fields::new(),
             token: Fields::new(),
-            refreshes: true,
-            refuse_refresh: false,
+            issues_refresh_tokens: true,
+            deny_refresh: false,
             refresh_token: "stub-refresh-token-0".into(),
-            renewals: vec![],
+            refresh_requests: vec![],
         }));
         let router = Router::new()
             .route("/oauth/token", post(exchange))
@@ -200,7 +200,7 @@ impl Stub {
 
     /// The provider sends the person back with `access_denied`.
     pub fn deny_sign_in(&self) {
-        self.world().deny = true;
+        self.world().deny_sign_in = true;
     }
 
     /// Sets `claims` on the provider's ID tokens.
@@ -217,13 +217,13 @@ impl Stub {
 
     /// The provider issues no refresh tokens, and its Discovery document
     /// doesn't list them.
-    pub fn no_refresh(&self) {
-        self.world().refreshes = false;
+    pub fn issue_no_refresh_tokens(&self) {
+        self.world().issues_refresh_tokens = false;
     }
 
-    /// The provider refuses refresh tokens, as once they've expired.
-    pub fn refuse_refresh(&self) {
-        self.world().refuse_refresh = true;
+    /// The provider denies refresh tokens, as once they've expired.
+    pub fn deny_refresh(&self) {
+        self.world().deny_refresh = true;
     }
 
     /// The refresh token the provider takes now.
@@ -231,9 +231,9 @@ impl Stub {
         self.world().refresh_token.clone()
     }
 
-    /// The forms renewals sent the provider.
-    pub fn renewals(&self) -> Vec<Fields> {
-        self.world().renewals.clone()
+    /// The forms refresh requests sent the provider.
+    pub fn refresh_requests(&self) -> Vec<Fields> {
+        self.world().refresh_requests.clone()
     }
 }
 
@@ -283,7 +283,7 @@ async fn discovery(State(state): Shared) -> Json<Value> {
     let base = &world.base;
     // As Cloudflare Access lists them, per application.
     let mut grants = vec!["authorization_code_with_pkce"];
-    if world.refreshes {
+    if world.issues_refresh_tokens {
         grants.push("refresh_tokens");
     }
     Json(json!({
@@ -298,7 +298,7 @@ async fn discovery(State(state): Shared) -> Json<Value> {
 async fn authorize(State(state): Shared, Query(query): Query<Fields>) -> Response {
     let mut world = state.lock().unwrap();
     let mut back = url::Url::parse(&query["redirect_uri"]).unwrap();
-    if world.deny {
+    if world.deny_sign_in {
         back.query_pairs_mut()
             .append_pair("error", "access_denied")
             .append_pair("error_description", "not an account member");
@@ -316,7 +316,7 @@ async fn authorize(State(state): Shared, Query(query): Query<Fields>) -> Respons
 /// rotates them.
 async fn token(State(state): Shared, Form(form): Form<Fields>) -> Response {
     let mut world = state.lock().unwrap();
-    let renewal = form.get("grant_type").map(String::as_str) == Some("refresh_token");
+    let refreshing = form.get("grant_type").map(String::as_str) == Some("refresh_token");
     let mut claims = json!({
         "iss": format!("{}/idp", world.base),
         "sub": "user-0001",
@@ -324,7 +324,7 @@ async fn token(State(state): Shared, Form(form): Form<Fields>) -> Response {
         "aud": CLIENT_ID,
         "exp": chrono::Utc::now().timestamp() + 3600,
     });
-    if !renewal {
+    if !refreshing {
         claims["nonce"] = json!(world.authorize.get("nonce"));
     }
     for (key, value) in world.claims.as_object().unwrap() {
@@ -332,24 +332,24 @@ async fn token(State(state): Shared, Form(form): Form<Fields>) -> Response {
     }
     let mut reply = json!({ "id_token": jwt(claims), "token_type": "Bearer", "access_token": "stub-access-token" });
 
-    if renewal {
-        let taken = form.get("refresh_token") == Some(&world.refresh_token);
-        world.renewals.push(form);
-        if world.refuse_refresh || !taken {
-            let refusal = json!({ "error": "invalid_grant", "error_description": "the refresh token has expired" });
-            return (StatusCode::BAD_REQUEST, Json(refusal)).into_response();
+    if refreshing {
+        let current = form.get("refresh_token") == Some(&world.refresh_token);
+        world.refresh_requests.push(form);
+        if world.deny_refresh || !current {
+            let denial = json!({ "error": "invalid_grant", "error_description": "the refresh token has expired" });
+            return (StatusCode::BAD_REQUEST, Json(denial)).into_response();
         }
-        let next = world.renewals.len();
+        let next = world.refresh_requests.len();
         world.refresh_token = format!("stub-refresh-token-{next}");
         reply["refresh_token"] = json!(world.refresh_token);
         return Json(reply).into_response();
     }
 
-    let offline = world
+    let wants_refresh_token = world
         .authorize
         .get("scope")
         .is_some_and(|scope| scope.split(' ').any(|s| s == "offline_access"));
-    if world.refreshes && offline {
+    if world.issues_refresh_tokens && wants_refresh_token {
         reply["refresh_token"] = json!(world.refresh_token);
     }
     world.token = form;

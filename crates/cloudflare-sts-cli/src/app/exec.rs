@@ -260,7 +260,7 @@ mod tests {
 
     /// A store holding a login for `stub`'s broker, with the refresh token
     /// its provider takes.
-    fn signed_in_renewable(stub: &Stub, claims: Value) -> Shared {
+    fn signed_in_with_refresh_token(stub: &Stub, claims: Value) -> Shared {
         signed_in_with(stub, claims, Some(stub.refresh_token()))
     }
 
@@ -372,7 +372,7 @@ mod tests {
     #[tokio::test]
     async fn login_asks_for_no_refresh_token_where_the_provider_issues_none() {
         let stub = Stub::start().await;
-        stub.no_refresh();
+        stub.issue_no_refresh_tokens();
         let store = Shared::default();
         login(&stub, &store).await.unwrap();
 
@@ -623,15 +623,15 @@ mod tests {
     #[tokio::test]
     async fn exec_renews_an_expired_login_with_its_refresh_token() {
         let stub = Stub::start().await;
-        let store = signed_in_renewable(&stub, json!({ "exp": 1_790_000_000 }));
+        let store = signed_in_with_refresh_token(&stub, json!({ "exp": 1_790_000_000 }));
         assert_eq!(exec(&stub, &store, "true").await.unwrap(), 0);
 
         // Renewed as the public client, with no secret, then exchanged.
-        let renewal = stub.renewals().pop().unwrap();
-        assert_eq!(renewal["grant_type"], "refresh_token");
-        assert_eq!(renewal["refresh_token"], "stub-refresh-token-0");
-        assert_eq!(renewal["client_id"], stub::CLIENT_ID);
-        assert!(!renewal.contains_key("client_secret"));
+        let request = stub.refresh_requests().pop().unwrap();
+        assert_eq!(request["grant_type"], "refresh_token");
+        assert_eq!(request["refresh_token"], "stub-refresh-token-0");
+        assert_eq!(request["client_id"], stub::CLIENT_ID);
+        assert!(!request.contains_key("client_secret"));
         assert_eq!(stub.exchanges().len(), 1);
 
         // The new ID token and the rotated refresh token are kept.
@@ -645,16 +645,16 @@ mod tests {
     async fn exec_renews_a_login_about_to_expire() {
         let stub = Stub::start().await;
         let soon = chrono::Utc::now().timestamp() + 20;
-        let store = signed_in_renewable(&stub, json!({ "exp": soon }));
+        let store = signed_in_with_refresh_token(&stub, json!({ "exp": soon }));
         assert_eq!(exec(&stub, &store, "true").await.unwrap(), 0);
-        assert_eq!(stub.renewals().len(), 1);
+        assert_eq!(stub.refresh_requests().len(), 1);
     }
 
     #[tokio::test]
-    async fn exec_says_to_sign_in_when_the_provider_refuses_the_renewal() {
+    async fn exec_says_to_sign_in_when_the_provider_denies_the_refresh() {
         let stub = Stub::start().await;
-        stub.refuse_refresh();
-        let store = signed_in_renewable(&stub, json!({ "exp": 1_790_000_000 }));
+        stub.deny_refresh();
+        let store = signed_in_with_refresh_token(&stub, json!({ "exp": 1_790_000_000 }));
         let err = exec(&stub, &store, "true").await.unwrap_err().to_string();
         assert_eq!(
             err,
@@ -666,7 +666,7 @@ mod tests {
     #[tokio::test]
     async fn whoami_renews_an_expired_login_and_says_it_renews() {
         let stub = Stub::start().await;
-        let store = signed_in_renewable(&stub, json!({ "exp": 1_790_000_000 }));
+        let store = signed_in_with_refresh_token(&stub, json!({ "exp": 1_790_000_000 }));
         let (result, text) = whoami(&stub, &store, &[]).await;
         result.unwrap();
         assert!(!text.contains("(expired)"), "{text}");
@@ -676,6 +676,10 @@ mod tests {
         result.unwrap();
         let answer: Value = serde_json::from_str(&text).unwrap();
         assert_eq!(answer["renews"], true);
-        assert_eq!(stub.renewals().len(), 1, "renewed once, then still fresh");
+        assert_eq!(
+            stub.refresh_requests().len(),
+            1,
+            "renewed once, then still fresh"
+        );
     }
 }
