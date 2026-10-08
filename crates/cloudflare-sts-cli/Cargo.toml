@@ -1,6 +1,6 @@
 [package]
 name = "cloudflare-sts-cli"
-version = "0.19.0" # x-release-please-version
+version = "0.20.0" # x-release-please-version
 edition = "2024"
 authors = ["iamralch"]
 readme = "README.md"
