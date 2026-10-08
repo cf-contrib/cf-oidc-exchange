@@ -153,14 +153,14 @@ policy change creates a new Worker version.
 
 People sign in to the [CLI](../../crates/cloudflare-sts-cli) through an
 identity provider that issues them an ID token. For Cloudflare Access, the
-[`saas-oidc`](https://github.com/tofu-contrib/terraform-cloudflare-access/tree/main/modules/saas-oidc)
+[`saas-oidc`](https://github.com/tf-contrib/terraform-cloudflare-access/tree/main/modules/saas-oidc)
 module of terraform-cloudflare-access creates the application, a public client
 with PKCE, and the policy that says who may sign in. Give the broker a provider
 for it:
 
 ```hcl
 module "cloudflare_access_saas_oidc" {
-  source = "git::https://github.com/tofu-contrib/terraform-cloudflare-access.git//modules/saas-oidc?ref=v0.1.0"
+  source = "git::https://github.com/tf-contrib/terraform-cloudflare-access.git//modules/saas-oidc?ref=v0.1.0"
 
   account_id    = var.account_id
   team_name     = "example" # example.cloudflareaccess.com
