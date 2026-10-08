@@ -94,7 +94,7 @@ Either way the broker is reachable on exactly one URL, the `url` output, which i
 
 ## Policy
 
-The policy is three variables, as cf-nix-cache's module takes its providers,
+The policy is three variables, as cloudflare-nix's module takes its providers,
 in the policy's own format (see the [broker's README](../../crates/cloudflare-sts-api#policy)):
 
 - `oidc_providers`: the OIDC issuers the broker trusts. Typed, and checked at

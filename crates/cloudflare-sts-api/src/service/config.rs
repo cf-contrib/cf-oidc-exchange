@@ -217,7 +217,7 @@ impl Secret {
 /// their callers may get, its profiles.
 ///
 /// It knows no issuer by name: who may do what is in the claim sets, as in
-/// cf-nix-cache.
+/// cloudflare-nix.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PolicyConfig {
@@ -1101,7 +1101,7 @@ pub(super) mod tests {
     pub(crate) const ACCOUNT_ID: &str = "0123456789abcdef0123456789abcdef";
     pub(crate) const ISSUER: &str = "https://token.actions.githubusercontent.com";
     pub(crate) const BROKER: &str = "https://cloudflare-sts-api.example.com";
-    pub(crate) const CACHE: &str = "https://cf-nix-cache.example.com";
+    pub(crate) const CACHE: &str = "https://cloudflare-nix-api.example.com";
 
     /// A policy: one provider, pinned to the test org, a profile for
     /// Cloudflare, and one for the cache.
@@ -1464,7 +1464,7 @@ pub(super) mod tests {
             ),
             (
                 json!({ "name": "both", "audience": CACHE, "claims": [{ "ref": "x" }], "token": token() }),
-                "a profile for https://cf-nix-cache.example.com can't have a token or a bucket",
+                "a profile for https://cloudflare-nix-api.example.com can't have a token or a bucket",
             ),
             (
                 json!({ "name": "self", "audience": BROKER, "claims": [{ "ref": "x" }] }),
@@ -1678,7 +1678,7 @@ pub(super) mod tests {
                 main,
                 Some("deploy"),
                 CACHE,
-                "profile deploy isn't for https://cf-nix-cache.example.com",
+                "profile deploy isn't for https://cloudflare-nix-api.example.com",
             ),
         ];
         for (claims, requested, audience, expected) in cases {
